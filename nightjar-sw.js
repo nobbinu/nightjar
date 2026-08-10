@@ -1,7 +1,7 @@
 /* Nightjar service worker — offline-first shell.
  * BUMP VERSION ON EVERY EDIT of nightjar-messenger.html or this file,
  * exactly as with ShopCalc, or phones keep serving the cached copy. */
-const VERSION = 'nightjar-v1';
+const VERSION = 'nightjar-v2';
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION)
     .then((c) => c.addAll(['./nightjar-messenger.html']))

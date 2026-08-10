@@ -9,6 +9,7 @@
 <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNjM2IwZmYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjNmQzZmQ0Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPHJhZGlhbEdyYWRpZW50IGlkPSJtb29uIiBjeD0iMC41IiBjeT0iMC40NSIgcj0iMC42Ij4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjMjAyMjJmIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzBkMGUxMyIvPgogICAgPC9yYWRpYWxHcmFkaWVudD4KICA8L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiIHJ4PSIxMTIiIGZpbGw9IiMwZDBlMTMiLz4KICA8Y2lyY2xlIGN4PSIyNTYiIGN5PSIyNTYiIHI9IjE1MiIgZmlsbD0idXJsKCNtb29uKSIvPgogIDwhLS0gc3dpZnQgc2lsaG91ZXR0ZTogbG9uZyBzY3l0aGUgd2luZ3Mgc3dlcHQgYmFjaywgc21hbGwgaGVhZCwgZm9ya2VkIHRhaWwgLS0+CiAgPHBhdGggZmlsbD0idXJsKCNnKSIgZD0iCiAgICBNMTUwIDE1MAogICAgYzU4IDM0IDk2IDY0IDEyMCA5NgogICAgYzMwLTEyIDY2LTE2IDEwOC04CiAgICBjLTM0IDgtNjAgMjItNzggNDAKICAgIGMtMiAzMC0xNiA1OC00NCA4MgogICAgYzgtMzQgNi02Mi02LTg0CiAgICBjLTQwLTMwLTgyLTc0LTEwMC0xMjZ6IiB0cmFuc2Zvcm09InJvdGF0ZSg4IDI1NiAyNTYpIi8+Cjwvc3ZnPg==">
 <link rel="apple-touch-icon" href="./nightjar-180.png">
 <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjogIk5pZ2h0amFyIiwgInNob3J0X25hbWUiOiAiTmlnaHRqYXIiLCAic3RhcnRfdXJsIjogIi4vbmlnaHRqYXItbWVzc2VuZ2VyLmh0bWwiLCAic2NvcGUiOiAiLi8iLCAiZGlzcGxheSI6ICJzdGFuZGFsb25lIiwgImJhY2tncm91bmRfY29sb3IiOiAiIzBkMGUxMyIsICJ0aGVtZV9jb2xvciI6ICIjMGQwZTEzIiwgImRlc2NyaXB0aW9uIjogIkVuY3J5cHRlZCBtZXNzYWdlcywgZmlsZXMgYW5kIGxvY2F0aW9uIGZvciBhIGdyb3VwIHlvdSB0cnVzdC4iLCAiaWNvbnMiOiBbeyJzcmMiOiAiLi9uaWdodGphci0xOTIucG5nIiwgInNpemVzIjogIjE5MngxOTIiLCAidHlwZSI6ICJpbWFnZS9wbmcifSwgeyJzcmMiOiAiLi9uaWdodGphci01MTIucG5nIiwgInNpemVzIjogIjUxMng1MTIiLCAidHlwZSI6ICJpbWFnZS9wbmcifSwgeyJzcmMiOiAiLi9uaWdodGphci1tYXNrYWJsZS01MTIucG5nIiwgInNpemVzIjogIjUxMng1MTIiLCAidHlwZSI6ICJpbWFnZS9wbmciLCAicHVycG9zZSI6ICJtYXNrYWJsZSJ9XX0=">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Nightjar">
 <style>
@@ -11197,7 +11198,7 @@ let me = localStorage.getItem(LS.me) || '';
 let relay = localStorage.getItem(LS.relay) || '';
 let convs = JSON.parse(localStorage.getItem(LS.convs) || '[]');
 let keepDays = Number(localStorage.getItem(LS.keep) ?? 30);   // 0 = keep indefinitely
-let openId = null, view = 'list';
+let openId = null, view = 'list', query = '';
 const socks = new Map();
 
 const VAULT = 'courier.vault';
@@ -12095,7 +12096,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>87882f06c3a0</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>8b50f16a5066</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
