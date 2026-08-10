@@ -285,7 +285,7 @@ details[open] summary:before{content:'▾ '}
   <button class="iconbtn hide" id="back" aria-label="Back">
     <svg viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg></button>
   <div class="av sm hide" id="hav"></div>
-  <h1 id="title">Courier<span class="sub" id="sub"></span></h1>
+  <h1 id="title">Nightjar<span class="sub" id="sub"></span></h1>
   <button class="iconbtn" id="info" aria-label="Conversation details">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></button>
   <button class="sosbtn hide" id="sos">SOS</button>
@@ -11657,7 +11657,7 @@ function paintHead(){
     ? (n ? n + ' online' : 'nobody online')
     : (n ? 'online' : 'offline');
 }
-function chrome({ back=false, info=false, gear=true, composer=false, title='Courier', sub='',
+function chrome({ back=false, info=false, gear=true, composer=false, title='Nightjar', sub='',
                   av=null, big=false, search=false, compose=false }){
   $('#back').classList.toggle('hide', !back);
   $('#info').classList.toggle('hide', !info);
@@ -11683,7 +11683,7 @@ function chrome({ back=false, info=false, gear=true, composer=false, title='Cour
 /* ---------- list ---------- */
 function renderList(){
   view = 'list'; openId = null;
-  chrome({ title:'Courier', sub: convs.length ? '' : 'end-to-end encrypted' });
+  chrome({ title:'Nightjar', sub: convs.length ? '' : 'end-to-end encrypted' });
   const sorted = [...convs].sort((a,b)=>(b.lastTs||0)-(a.lastTs||0));
   const m = $('#main');
   if (!convs.length) {
@@ -11787,7 +11787,7 @@ function renderJoin(){
   $('#scan').onclick = () => scanQR((v) => { $('#kk').value = v.trim(); toast('Code scanned'); });
   $('#ok').onclick = async () => {
     let key; try { key = fromBase64($('#kk').value.trim()); } catch { key = null; }
-    if (!key || key.length !== 32) return toast('That is not a Courier key');
+    if (!key || key.length !== 32) return toast('That is not a Nightjar key');
     const id = await roomId(key);
     if (conv(id)) return toast('You are already in that conversation');
     convs.push({ id, name:$('#nm').value.trim()||'Unnamed', kind:$('#kd').value,
@@ -12096,7 +12096,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>8b50f16a5066</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>07528ed59041</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -12312,7 +12312,7 @@ function noCrypto(){
     <p class="note" style="margin-top:0">Browsers only allow encryption on pages served over
     <strong>https://</strong> or opened from <strong>file://</strong>. This one was opened from
     <code>${esc(location.protocol)}//</code>, where the browser withholds the crypto engine, so
-    Courier cannot seal or open anything.</p>
+    Nightjar cannot seal or open anything.</p>
     <p class="note">Put the file on a web host — GitHub Pages works — and open the https address
     instead. Opening it from a downloads or files app will land you back here.</p>
   </div></div>`;
