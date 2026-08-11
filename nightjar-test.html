@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nightjar test</title>
+<style>
+  body { background:#0d0e13; color:#f2f3f7; font-family:system-ui,sans-serif; margin:0; padding:2rem; }
+  .box { background:#16171f; border:1px solid #23252f; border-radius:16px; padding:1.5rem; max-width:24rem; }
+  .accent { color:#8b5cf6; font-weight:700; font-size:1.4rem; }
+  button { background:#8b5cf6; color:#fff; border:0; border-radius:12px; padding:.7rem 1.2rem; font-size:1rem; cursor:pointer; margin-top:1rem; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="accent">Nightjar test</div>
+    <p id="msg">If this box is dark with a purple heading, CSS works.</p>
+    <button id="btn">Tap me</button>
+  </div>
+<script>
+  document.getElementById('btn').addEventListener('click', function () {
+    document.getElementById('msg').textContent = 'JavaScript works too. ✓';
+    document.getElementById('msg').style.color = '#4ec78f';
+  });
+</script>
+</body>
+</html>
