@@ -12143,12 +12143,14 @@ function renderInfo(){
     <div class="card">
       <label class="lb">Safety number</label>
       <div class="fp">${esc(c.fp)}</div>
-      <details><summary class="lb" style="cursor:pointer">Show code to add someone</summary>
-        <div class="qrwrap">${qrSvg(c.key)}</div></details>
       <p class="note" style="margin-top:0">Read it aloud. If it doesn't match on their device, you are not
-      talking to who you think you are. This checks a key \u2014 it is not the key itself; to add
-      someone, use "Copy key" or the code above.</p>
-      <div class="acts"><button class="btn sec" id="cp">Copy key</button></div>
+      talking to who you think you are. This checks a key \u2014 it is not the key itself.</p>
+      <p class="note">To add someone, use Copy key or tap QR code and let them scan it.</p>
+      <div class="acts">
+        <button class="btn sec" id="cp">Copy key</button>
+        <button class="btn" id="qrp">QR code</button>
+      </div>
+      <div class="qrwrap hide" id="qrbox">${qrSvg(c.key)}</div>
     </div>
     <div class="card">
       <label class="lb">Rotate the key</label>
@@ -12170,6 +12172,11 @@ function renderInfo(){
       <div class="acts"><button class="btn warn" id="del">Leave conversation</button></div>
     </div></div>`;
   $('#cp').onclick = () => navigator.clipboard.writeText(c.key).then(()=>toast('Key copied'));
+  $('#qrp').onclick = () => {
+    const box = $('#qrbox');
+    box.classList.toggle('hide');
+    $('#qrp').textContent = box.classList.contains('hide') ? 'QR code' : 'Hide QR code';
+  };
   $('#rot').onclick = async () => {
     if (!confirm('Create a new key for "'+c.name+'"? Everyone must re-join with it. The old conversation stays, marked "(old key)", until you leave it.')) return;
     const key = newSharedKey();
@@ -12236,7 +12243,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>fd2208549fa0</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>4b7c76d61ab9</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
