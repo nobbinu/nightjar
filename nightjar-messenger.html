@@ -2,7 +2,7 @@
 <html lang="en-GB">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#eef0f5" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#101218" media="(prefers-color-scheme: dark)">
 <title>Nightjar</title>
@@ -1995,7 +1995,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>46050410a6bc</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>4b9cfcae35cf</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -2072,6 +2072,9 @@ function renderSettings(){
 
 /* ---------- composer ---------- */
 const entry = $('#entry');
+entry.addEventListener('focus', () => {
+  setTimeout(() => { entry.scrollIntoView({ block:'end' }); scrollEnd(); }, 350);
+});
 entry.addEventListener('input', () => {
   entry.style.height='auto';
   entry.style.height = Math.min(136, entry.scrollHeight)+'px';
