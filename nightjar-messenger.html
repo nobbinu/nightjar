@@ -1987,7 +1987,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>58edb0ef5c51</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>69e8c3f1c2f3</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -2208,6 +2208,18 @@ function noCrypto(){
     instead. Opening it from a downloads or files app will land you back here.</p>
   </div></div>`;
 }
+window.addEventListener('error', (e) => {
+  const b = document.body;
+  if (b) b.insertAdjacentHTML('afterbegin',
+    '<pre style="background:#e0655a;color:#fff;padding:1rem;margin:0;white-space:pre-wrap;font:14px monospace;z-index:9999;position:relative">STARTUP ERROR: '
+    + (e.message||e.error) + '\n' + ((e.error&&e.error.stack)||'') + '</pre>');
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const b = document.body;
+  if (b) b.insertAdjacentHTML('afterbegin',
+    '<pre style="background:#e0655a;color:#fff;padding:1rem;margin:0;white-space:pre-wrap;font:14px monospace;z-index:9999;position:relative">ASYNC ERROR: '
+    + ((e.reason&&e.reason.stack)||e.reason) + '</pre>');
+});
 (async () => {
   if (!window.isSecureContext || !window.crypto || !crypto.subtle) return noCrypto();
   // deliberately no service worker: cache-first caching hid earlier fixes
