@@ -54,10 +54,15 @@ input,textarea,select{font:inherit;color:var(--text)}
 
 /* ---------- SOS ---------- */
 .sosbtn{
+  position:absolute;left:50%;transform:translateX(-50%);
+  top:calc(.35rem + env(safe-area-inset-top));
   background:var(--danger);color:#fff;font-weight:800;font-size:.92rem;letter-spacing:.08em;
-  padding:.5rem 1.15rem;border-radius:999px;flex:0 0 auto;min-height:40px;
+  padding:.5rem 1.15rem;border-radius:999px;min-height:40px;
   text-align:center;box-shadow:0 3px 12px rgba(224,101,90,.4);
 }
+.bar.big .sosbtn{top:calc(.9rem + env(safe-area-inset-top))}
+/* keep titles from running under the centred pill */
+.bar h1{max-width:calc(50% - 64px)}
 .sosbtn:active{transform:scale(.97)}
 .sosbtn:active{transform:scale(.97)}
 .fixbig{font-family:var(--mono);font-size:1.35rem;font-weight:700;text-align:center;margin:.2rem 0}
@@ -69,6 +74,10 @@ input,textarea,select{font:inherit;color:var(--text)}
   border-radius:14px;padding:1.05rem;width:100%;margin-bottom:.5rem;min-height:60px}
 .warnbox{background:var(--danger-soft);border-left:3px solid var(--danger);border-radius:10px;
   padding:.7rem .85rem;font-size:.82rem;color:#f0b8b0;line-height:1.45;margin-top:.8rem}
+.chips{display:flex;gap:.5rem;flex-wrap:wrap;margin:.2rem 0 .6rem}
+.chip{background:var(--surface-2);border:1px solid var(--line);border-radius:999px;
+  padding:.45rem .85rem;font-size:.85rem;font-weight:600;min-height:38px}
+.chip:active{background:var(--accent-soft)}
 .pick{display:flex;align-items:center;gap:.7rem;padding:.5rem .1rem;font-size:.95rem;cursor:pointer}
 .pick input{width:22px;height:22px;accent-color:var(--accent);flex:0 0 auto}
 .b.sos{background:var(--danger-soft);border:1px solid var(--danger);align-self:stretch;
@@ -11824,6 +11833,11 @@ function bubbleEl(m, prev){
     const h = document.createElement('div'); h.className='hdr';
     h.textContent = 'SOS — ' + (m.dir==='out' ? 'you' : m.from) + ' needs help';
     wrap.appendChild(h);
+    if (m.loc && m.loc.note) {
+      const nt = document.createElement('div');
+      nt.style.cssText='font-size:.95rem;font-weight:600;margin:.1rem 0 .25rem';
+      nt.textContent = m.loc.note; wrap.appendChild(nt);
+    }
     if (m.loc && !m.loc.none) {
       const gr = toGridRef(m.loc.lat, m.loc.lng);
       const g = document.createElement('div'); g.className='gr';
@@ -11945,6 +11959,18 @@ async function renderSOS(){
       straight away; anyone offline collects it when they next open it.</p>
     </div>
     <div class="card">
+      <span class="lb" for="why">What's wrong? (optional)</span>
+      <div class="chips">
+        <button class="chip" data-w="Injured">Injured</button>
+        <button class="chip" data-w="Vehicle stuck">Vehicle stuck</button>
+        <button class="chip" data-w="Need help, not urgent">Need help, not urgent</button>
+      </div>
+      <input class="inp" id="why" maxlength="100" autocomplete="off"
+        placeholder="One line, e.g. fallen, leg injured">
+      <p class="note">Optional \u2014 SEND SOS works with or without it. Kept short so a text
+      stays one message.</p>
+    </div>
+    <div class="card">
       <span class="lb" for="num">Also text or message a phone</span>
       <input class="inp" id="num" type="tel" inputmode="tel" autocomplete="off"
         placeholder="Phone number, e.g. 07700 900312">
@@ -11962,6 +11988,8 @@ async function renderSOS(){
   </div>`;
 
   const numbers = () => $('#num').value.replace(/[^0-9+]/g,'');
+  const why = () => $('#why').value.trim().slice(0,100);
+  document.querySelectorAll('.chip').forEach(ch => ch.onclick = () => { $('#why').value = ch.dataset.w; });
 
   let here = null, msg = '';
   try {
@@ -11973,6 +12001,7 @@ async function renderSOS(){
       <div class="fixbig">${here.lat.toFixed(5)}, ${here.lng.toFixed(5)}</div>
       <div class="acc${poor?' poor':''}">\u00b1${here.acc} m${poor?' — poor fix, wait for better if you can':''}</div>`;
     msg = `SOS \u2014 ${me} needs help.\n`
+        + (why() ? why() + '\n' : '')
         + (gr ? `Grid ${gr}\n` : '')
         + `${here.lat.toFixed(5)}, ${here.lng.toFixed(5)} (\u00b1${here.acc} m)\n`
         + `https://www.openstreetmap.org/?mlat=${here.lat}&mlon=${here.lng}#map=16/${here.lat}/${here.lng}`;
@@ -11981,7 +12010,7 @@ async function renderSOS(){
     $('#fixbox').innerHTML = `<p class="note" style="margin-top:0;color:var(--danger)">
       No position available — location permission may be off, or there is no signal for a fix.
       You can still send a message without coordinates.</p>`;
-    msg = `SOS \u2014 ${me} needs help. No position available.`;
+    msg = `SOS \u2014 ${me} needs help.` + (why() ? '\n' + why() : '') + '\nNo position available.';
     for (const id of ['fire','smsb','wa','share']) $('#'+id).disabled = false;
   }
 
@@ -11990,7 +12019,8 @@ async function renderSOS(){
     let sent = 0;
     for (const id of chosen) {
       const c = conv(id); if (!c) continue;
-      const body = JSON.stringify(here || { lat:0, lng:0, acc:0, none:true });
+      const body = JSON.stringify({ ...(here || { lat:0, lng:0, acc:0, none:true }),
+                                    ...(why() ? { note: why() } : {}) });
       const data = new TextEncoder().encode(body);
       const local = { id:crypto.randomUUID(), conv:c.id, dir:'out', ts:Date.now(), from:me,
                       kind:'sos', loc: here || null, size:data.length };
@@ -12005,20 +12035,30 @@ async function renderSOS(){
     const sent = await alertConvs();
     $('#fire').textContent = sent ? 'SENT TO ' + sent : 'SENT';
   };
+  const finalMsg = () => {
+    // rebuild so anything typed after the fix arrived is included
+    if (!here) return `SOS \u2014 ${me} needs help.` + (why() ? '\n' + why() : '') + '\nNo position available.';
+    const gr = toGridRef(here.lat, here.lng);
+    return `SOS \u2014 ${me} needs help.\n`
+      + (why() ? why() + '\n' : '')
+      + (gr ? `Grid ${gr}\n` : '')
+      + `${here.lat.toFixed(5)}, ${here.lng.toFixed(5)} (\u00b1${here.acc} m)\n`
+      + `https://www.openstreetmap.org/?mlat=${here.lat}&mlon=${here.lng}#map=16/${here.lat}/${here.lng}`;
+  };
   $('#smsb').onclick = async () => {
     void alertConvs();
-    location.href = 'sms:' + numbers() + '?body=' + encodeURIComponent(msg);
+    location.href = 'sms:' + numbers() + '?body=' + encodeURIComponent(finalMsg());
   };
   $('#wa').onclick = async () => {
     await alertConvs();
     const n = numbers().replace(/^0/,'44').replace(/^\+/,'');
-    location.href = n ? `https://wa.me/${n}?text=${encodeURIComponent(msg)}`
-                      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    location.href = n ? `https://wa.me/${n}?text=${encodeURIComponent(finalMsg())}`
+                      : `https://wa.me/?text=${encodeURIComponent(finalMsg())}`;
   };
   $('#share').onclick = () => {
     // the share sheet must open inside the tap gesture; seal to conversations after
-    if (navigator.share) { navigator.share({ text: msg }).catch(()=>{}); }
-    else { navigator.clipboard.writeText(msg).then(()=>toast('Copied — paste it into any app')); }
+    if (navigator.share) { navigator.share({ text: finalMsg() }).catch(()=>{}); }
+    else { navigator.clipboard.writeText(finalMsg()).then(()=>toast('Copied — paste it into any app')); }
     void alertConvs();
   };
 }
@@ -12187,7 +12227,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>4a1144b5272a</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>fb043f601b59</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
