@@ -1941,11 +1941,23 @@ function renderInfo(){
       <div class="acts"><button class="btn sec" id="cp">Copy key</button></div>
     </div>
     <div class="card">
+      <label class="lb">Name on this device</label>
+      <p class="note" style="margin-top:0">Names are labels kept on each device separately — they are
+      never sent with the key, so each device names the conversation for itself.</p>
+      <div class="acts"><button class="btn sec" id="ren">Rename</button></div>
+    </div>
+    <div class="card">
       <label class="lb">Leave</label>
       <p class="note" style="margin-top:0">Deletes this conversation and its messages from this device only.</p>
       <div class="acts"><button class="btn warn" id="del">Leave conversation</button></div>
     </div></div>`;
   $('#cp').onclick = () => navigator.clipboard.writeText(c.key).then(()=>toast('Key copied'));
+  $('#ren').onclick = () => {
+    const n = prompt('Name this conversation', c.name === 'Unnamed' ? '' : c.name);
+    if (n === null) return;
+    c.name = n.trim() || 'Unnamed';
+    saveConvs(); renderInfo(); toast('Renamed');
+  };
   $('#del').onclick = async () => {
     if (!confirm('Leave "'+c.name+'" and delete its messages from this device?')) return;
     const s2 = socks.get(c.id); if (s2 && s2.ws) s2.ws.close();
@@ -1995,7 +2007,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>ea031c0cbb97</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>df0ffa832884</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
