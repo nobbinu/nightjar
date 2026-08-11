@@ -11668,9 +11668,19 @@ function paintHead(){
   if (view !== 'thread' || !c) return;
   const s = socks.get(c.id), n = s ? s.peers : 0;
   $('#title').firstChild.textContent = c.name;
+  requestAnimationFrame(fitTitle);
   $('#sub').textContent = c.kind === 'group'
     ? (n ? n + ' online' : 'nobody online')
     : (n ? 'online' : 'offline');
+}
+function fitTitle(){
+  const pill = $('#sos'), h = $('#title');
+  if (!h) return;
+  if (!pill || pill.classList.contains('hide')) { h.style.maxWidth = ''; return; }
+  const pr = pill.getBoundingClientRect(), hr = h.getBoundingClientRect();
+  if (!pr.width) return;                       // not laid out yet
+  const room = pr.left - hr.left - 12;         // hard gap before the pill
+  h.style.maxWidth = Math.max(60, room) + 'px';
 }
 function chrome({ back=false, info=false, gear=true, composer=false, title='Nightjar', sub='',
                   av=null, big=false, search=false, compose=false, sos=false }){
@@ -11693,6 +11703,7 @@ function chrome({ back=false, info=false, gear=true, composer=false, title='Nigh
     hav.style.background = hue(av.seed);
     hav.textContent = initials(av.name);
   } else hav.classList.add('hide');
+  requestAnimationFrame(fitTitle);
 }
 
 /* ---------- list ---------- */
@@ -12243,7 +12254,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>4b7c76d61ab9</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>96b4c6b57933</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
