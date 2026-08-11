@@ -11799,7 +11799,8 @@ function renderJoin(){
     <input class="inp" id="nm" autocomplete="off" placeholder="Who or what is this?">
     <label class="lb" style="margin-top:1rem" for="kk">Key</label>
     <div class="acts" style="margin:0 0 .5rem"><button class="btn sec" id="scan">Scan their code</button></div>
-    <input class="inp" id="kk" autocomplete="off" spellcheck="false" placeholder="…or paste the key">
+    <input class="inp" id="kk" autocomplete="off" spellcheck="false" autocapitalize="none"
+      autocorrect="off" placeholder="…or paste the key">
     <label class="lb" style="margin-top:1rem" for="kd">Type</label>
     <select class="inp" id="kd"><option value="contact">Contact</option><option value="group">Group</option></select>
     <p class="note">You'll collect anything sent in the last seven days.</p>
@@ -11807,8 +11808,12 @@ function renderJoin(){
   </div></div>`;
   $('#scan').onclick = () => scanQR((v) => { $('#kk').value = v.trim(); toast('Code scanned'); });
   $('#ok').onclick = async () => {
-    let key; try { key = fromBase64($('#kk').value.trim()); } catch { key = null; }
-    if (!key || key.length !== 32) return toast('That is not a Nightjar key');
+    const raw = $('#kk').value.trim();
+    if (/^[0-9A-Fa-f]{4}(\s+[0-9A-Fa-f]{4}){3}$/.test(raw))
+      return toast('That is the safety number \u2014 it verifies a key but is not one. Tap "Copy key" on their device and paste that.');
+    let key; try { key = fromBase64(raw.replace(/-/g,'+').replace(/_/g,'/')); } catch { key = null; }
+    if (!key || key.length !== 32)
+      return toast('Not a valid key \u2014 it should be 44 characters ending in "=". Use "Copy key" or "Show the key as text" on their device.');
     const id = await roomId(key);
     if (conv(id)) return toast('You are already in that conversation');
     convs.push({ id, name:$('#nm').value.trim()||'Unnamed', kind:$('#kd').value,
@@ -12141,7 +12146,8 @@ function renderInfo(){
       <details><summary class="lb" style="cursor:pointer">Show code to add someone</summary>
         <div class="qrwrap">${qrSvg(c.key)}</div></details>
       <p class="note" style="margin-top:0">Read it aloud. If it doesn't match on their device, you are not
-      talking to who you think you are.</p>
+      talking to who you think you are. This checks a key \u2014 it is not the key itself; to add
+      someone, use "Copy key" or the code above.</p>
       <div class="acts"><button class="btn sec" id="cp">Copy key</button></div>
     </div>
     <div class="card">
@@ -12230,7 +12236,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>05dea57c0b70</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>fd2208549fa0</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
