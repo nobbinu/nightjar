@@ -1574,12 +1574,18 @@ function chrome({ back=false, info=false, gear=true, composer=false, title='Nigh
 }
 
 /* ---------- list ---------- */
+function renderRows(){
+  if (view === 'list') renderList();
+}
 function renderList(){
   view = 'list'; openId = null;
   chrome({ title:'Nightjar', sub: convs.length ? '' : 'end-to-end encrypted' });
-  const sorted = [...convs].sort((a,b)=>(b.lastTs||0)-(a.lastTs||0));
+  const q = query.trim().toLowerCase();
+  const shown = q ? convs.filter(c => (c.name||'').toLowerCase().includes(q)
+                       || (c.last||'').toLowerCase().includes(q)) : convs;
+  const sorted = [...shown].sort((a,b)=>(b.lastTs||0)-(a.lastTs||0));
   const m = $('#main');
-  if (!convs.length) {
+  if (!sorted.length) {
     m.innerHTML = `<div class="empty">
       <svg viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 01-9 8.4 8.9 8.9 0 01-3.9-.9L3 20.5l1.5-4.4A8.4 8.4 0 0121 11.5z"/></svg>
       <p><strong>No conversations yet</strong><br>Start one and share the key with whoever should be in it.</p></div>`;
@@ -1989,7 +1995,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>64af0e12ff52</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>46050410a6bc</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -2211,6 +2217,8 @@ function noCrypto(){
   </div></div>`;
 }
 window.addEventListener('error', (e) => {
+  const msg = String(e.message || e.error || '');
+  if (msg.includes('ResizeObserver')) return;   // benign browser notice, not a fault
   const b = document.body;
   if (b) b.insertAdjacentHTML('afterbegin',
     '<pre style="background:#e0655a;color:#fff;padding:1rem;margin:0;white-space:pre-wrap;font:14px monospace;z-index:9999;position:relative">STARTUP ERROR: '
