@@ -15,9 +15,9 @@
 <style>
 :root{
   color-scheme:dark;
-  --bg:#0d0e13; --surface:#16171f; --surface-2:#1e1f29; --line:#23252f;
+  --bg:#0d0e13; --surface:#242631; --surface-2:#2e313f; --line:#3a3d4d;
   --text:#f2f3f7; --dim:#9195a6; --faint:#6e7286;
-  --accent:#8b5cf6; --accent-ink:#ffffff; --accent-soft:#241d3d; --accent-lit:#a78bfa;
+  --accent:#8b5cf6; --accent-ink:#ffffff; --accent-soft:#332a52; --accent-lit:#a78bfa;
   --danger:#e0655a; --danger-soft:#2c1a1a; --ok:#4ec78f;
   --in:#1e1f29; --out:#6d3fd4;
   --r:18px; --r-sm:10px;
@@ -26,10 +26,10 @@
   --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;height:100%}
+html,body{margin:0;min-height:100%}
 body{
   background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px;
-  display:flex;flex-direction:column;height:100dvh;overflow:hidden;-webkit-text-size-adjust:100%;
+  display:flex;flex-direction:column;min-height:100dvh;-webkit-text-size-adjust:100%;
 }
 button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 input,textarea,select{font:inherit;color:var(--text)}
@@ -95,7 +95,7 @@ input,textarea,select{font:inherit;color:var(--text)}
 .av.sm{width:34px;height:34px;font-size:.8rem}
 
 /* ---------- scroll region ---------- */
-main{flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+main{flex:1 1 auto;overflow:visible}
 .pad{padding:1rem;max-width:38rem;margin:0 auto}
 
 /* ---------- conversation list ---------- */
@@ -193,7 +193,7 @@ main{flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolli
 .card{background:var(--surface);border-radius:16px;padding:1rem;box-shadow:var(--shadow);
   margin-bottom:1rem}
 label.lb{display:block;font-size:.8rem;font-weight:600;color:var(--dim);margin:0 0 .35rem}
-.inp{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:12px;
+.inp{width:100%;background:#12131a;border:1px solid #4a4d5e;border-radius:12px;
   padding:.7rem .8rem;font-size:.95rem;outline:none}
 .inp:focus{border-color:var(--accent)}
 select.inp{appearance:none}
@@ -1987,7 +1987,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>95614ca9789b</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>a3344d407301</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
