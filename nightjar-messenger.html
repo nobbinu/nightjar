@@ -54,12 +54,11 @@ input,textarea,select{font:inherit;color:var(--text)}
 
 /* ---------- SOS ---------- */
 .sosbtn{
-  position:fixed;left:1rem;bottom:calc(1.4rem + env(safe-area-inset-bottom));z-index:6;
-  background:var(--danger);color:#fff;font-weight:800;font-size:1rem;letter-spacing:.1em;
-  padding:.6rem 1.7rem;border-radius:999px;min-height:44px;min-width:104px;
-  text-align:center;box-shadow:0 4px 14px rgba(224,101,90,.45);
+  background:var(--danger);color:#fff;font-weight:800;font-size:.92rem;letter-spacing:.08em;
+  padding:.5rem 1.15rem;border-radius:999px;flex:0 0 auto;min-height:40px;
+  text-align:center;box-shadow:0 3px 12px rgba(224,101,90,.4);
 }
-.sosbtn.raised{bottom:calc(5.6rem + env(safe-area-inset-bottom))}
+.sosbtn:active{transform:scale(.97)}
 .sosbtn:active{transform:scale(.97)}
 .fixbig{font-family:var(--mono);font-size:1.35rem;font-weight:700;text-align:center;margin:.2rem 0}
 .gridref{font-family:var(--mono);font-size:1.5rem;font-weight:700;text-align:center;
@@ -290,6 +289,7 @@ details[open] summary:before{content:'▾ '}
     <svg viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg></button>
   <div class="av sm hide" id="hav"></div>
   <h1 id="title">Nightjar<span class="sub" id="sub"></span></h1>
+  <button class="sosbtn hide" id="sos">SOS</button>
   <button class="iconbtn" id="info" aria-label="Conversation details">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></button>
   <button class="iconbtn hide" id="compose" aria-label="New conversation">
@@ -297,8 +297,6 @@ details[open] summary:before{content:'▾ '}
   <button class="iconbtn" id="gear" aria-label="Settings">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1A1.6 1.6 0 008 19.4a1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H2a2 2 0 110-4h.1A1.6 1.6 0 004.6 8a1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V2a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H22a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/></svg></button>
 </div>
-
-<button class="sosbtn hide" id="sos">SOS</button>
 
 <div class="searchwrap hide" id="searchwrap">
   <input class="search" id="search" type="search" placeholder="Search messages" autocomplete="off">
@@ -11669,7 +11667,6 @@ function chrome({ back=false, info=false, gear=true, composer=false, title='Nigh
   $('#gear').classList.toggle('hide', !gear);
   $('#compose').classList.toggle('hide', !compose);
   $('#sos').classList.toggle('hide', !(sos || compose || composer));
-  $('#sos').classList.toggle('raised', composer);
   $('#comp').classList.toggle('hide', !composer);
   $('#searchwrap').classList.toggle('hide', !search);
   document.querySelector('.bar').classList.toggle('big', big);
@@ -11951,7 +11948,6 @@ async function renderSOS(){
       <span class="lb" for="num">Also text or message a phone</span>
       <input class="inp" id="num" type="tel" inputmode="tel" autocomplete="off"
         placeholder="Phone number, e.g. 07700 900312">
-      <div class="acts" id="pickwrap"></div>
     </div>
     <button class="bigred" id="fire" disabled>SEND SOS</button>
     <div class="acts" style="margin-top:0">
@@ -11966,15 +11962,6 @@ async function renderSOS(){
   </div>`;
 
   const numbers = () => $('#num').value.replace(/[^0-9+]/g,'');
-  if (navigator.contacts && navigator.contacts.select) {
-    $('#pickwrap').innerHTML = '<button class="btn sec" id="pickc">Choose from contacts</button>';
-    $('#pickc').onclick = async () => {
-      try {
-        const picked = await navigator.contacts.select(['tel'], { multiple:false });
-        if (picked[0] && picked[0].tel && picked[0].tel[0]) $('#num').value = picked[0].tel[0];
-      } catch {}
-    };
-  }
 
   let here = null, msg = '';
   try {
@@ -12049,7 +12036,6 @@ async function renderShareLoc(){
       <span class="lb" for="num">Send to a phone</span>
       <input class="inp" id="num" type="tel" inputmode="tel" autocomplete="off"
         placeholder="Phone number (or pick the person in your messaging app)">
-      <div class="acts" id="pickwrap"></div>
       <div class="acts">
         <button class="btn" id="sms" disabled>Text it (SMS)</button>
         <button class="btn sec" id="wa" disabled>WhatsApp</button>
@@ -12062,15 +12048,6 @@ async function renderShareLoc(){
     </div>
   </div>`;
   const numbers = () => $('#num').value.replace(/[^0-9+]/g,'');
-  if (navigator.contacts && navigator.contacts.select) {
-    $('#pickwrap').innerHTML = '<button class="btn sec" id="pickc">Choose from contacts</button>';
-    $('#pickc').onclick = async () => {
-      try {
-        const picked = await navigator.contacts.select(['tel'], { multiple:false });
-        if (picked[0] && picked[0].tel && picked[0].tel[0]) $('#num').value = picked[0].tel[0];
-      } catch {}
-    };
-  }
   let msg = '';
   try {
     const here = await fix({ timeout:25000, maximumAge:0 });
@@ -12210,7 +12187,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>e840f112bfea</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>4a1144b5272a</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
