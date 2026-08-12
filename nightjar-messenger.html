@@ -11494,6 +11494,12 @@ async function openRecord(m){
     return out;
   } catch { return { ...m, kind:'bad', text:'A stored message could not be opened.' }; }
 }
+const seenMids = new Set();   // synchronous guard against same-tick double delivery
+const haveMessage = (id) => new Promise((res)=>{
+  if (seenMids.has(id)) return res(true);
+  const q = store('readonly').get(id);
+  q.onsuccess = () => res(!!q.result); q.onerror = () => res(false);
+});
 const put = async (m) => {
   const rec = await sealRecord(m);
   return new Promise((res,rej)=>{const q=store('readwrite').put(rec);q.onsuccess=res;q.onerror=()=>rej(q.error);});
@@ -11576,10 +11582,14 @@ const blobSink = () => { const p=[]; return { write:b=>p.push(b.slice()), finish
 const fileReader = (f) => ({ size:f.size, slice:async(a,b)=>new Uint8Array(await f.slice(a,b).arrayBuffer()) });
 
 async function receive(c, container){
-  let rec;
+  let rec, meta;
   try {
-    const { meta, result } = await open({ reader:bytesReader(container), secret:fromBase64(c.key), sink:blobSink() });
-    rec = { id:crypto.randomUUID(), conv:c.id, dir:'in', ts:meta.ts||Date.now(), from:meta.f||'Unknown',
+    let result;
+    ({ meta, result } = await open({ reader:bytesReader(container), secret:fromBase64(c.key), sink:blobSink() }));
+    // my own message, come back to me off the queue on a resync — I already have it
+    if (meta.mid && await haveMessage(meta.mid)) return;
+    if (meta.mid) seenMids.add(meta.mid);
+    rec = { id: meta.mid || crypto.randomUUID(), conv:c.id, dir:'in', ts:meta.ts||Date.now(), from:meta.f||'Unknown',
             kind:meta.k, name:meta.n, type:meta.t, size:result.size,
             text: meta.k==='text' ? await result.text() : undefined,
             loc: (meta.k==='loc'||meta.k==='sos') ? JSON.parse(await result.text()) : undefined,
@@ -11661,13 +11671,13 @@ async function sendText(c, text){
   const data = new TextEncoder().encode(text);
   const local = { id:crypto.randomUUID(), conv:c.id, dir:'out', ts:Date.now(), from:me,
                   kind:'text', text, size:data.length };
-  await transmit(c, bytesReader(data), { k:'text', s:data.length, f:me, ts:local.ts }, local);
+  await transmit(c, bytesReader(data), { k:'text', s:data.length, f:me, ts:local.ts, mid:local.id }, local);
 }
 async function sendFile(c, file){
   const local = { id:crypto.randomUUID(), conv:c.id, dir:'out', ts:Date.now(), from:me,
                   kind:'file', name:file.name, type:file.type, blob:file, size:file.size };
   await transmit(c, fileReader(file),
-    { k:'file', n:file.name, t:file.type||'application/octet-stream', s:file.size, f:me, ts:local.ts }, local);
+    { k:'file', n:file.name, t:file.type||'application/octet-stream', s:file.size, f:me, ts:local.ts, mid:local.id }, local);
 }
 
 /* ---------- chrome ---------- */
@@ -12063,7 +12073,7 @@ async function renderSOS(){
       const data = new TextEncoder().encode(body);
       const local = { id:crypto.randomUUID(), conv:c.id, dir:'out', ts:Date.now(), from:me,
                       kind:'sos', loc: here || null, size:data.length };
-      try { await transmit(c, bytesReader(data), { k:'sos', s:data.length, f:me, ts:local.ts }, local); sent++; }
+      try { await transmit(c, bytesReader(data), { k:'sos', s:data.length, f:me, ts:local.ts, mid:local.id }, local); sent++; }
       catch {}
     }
     return sent;
@@ -12342,7 +12352,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>34ca626e9272</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>f525eed6ba67</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -12537,7 +12547,7 @@ async function sendLocation(){
     const data = new TextEncoder().encode(JSON.stringify(payload));
     const local = { id:crypto.randomUUID(), conv:c.id, dir:'out', ts:Date.now(), from:me,
                     kind:'loc', loc:payload, size:data.length };
-    await transmit(c, bytesReader(data), { k:'loc', s:data.length, f:me, ts:local.ts }, local);
+    await transmit(c, bytesReader(data), { k:'loc', s:data.length, f:me, ts:local.ts, mid:local.id }, local);
   }, (err) => {
     toast(err.code === 1
       ? 'Location blocked \u2014 check Vanadium\u2019s own Location permission in Android settings, not just the site\u2019s'
