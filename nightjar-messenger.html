@@ -11384,7 +11384,7 @@ function fix(opts={}){
     navigator.geolocation.getCurrentPosition(
       (p) => {
         const f = { lat:+p.coords.latitude.toFixed(6), lng:+p.coords.longitude.toFixed(6),
-                    acc:Math.round(p.coords.accuracy), ts:Date.now() };
+                    acc:Math.round(p.coords.accuracy), ts:p.timestamp || Date.now() };
         myFix = f; res(f);
       }, rej,
       { enableHighAccuracy:true, timeout:opts.timeout ?? 20000, maximumAge:opts.maximumAge ?? 15000 });
@@ -12010,29 +12010,37 @@ async function renderSOS(){
   const why = () => $('#why').value.trim().slice(0,100);
   document.querySelectorAll('.chip').forEach(ch => ch.onclick = () => { $('#why').value = ch.dataset.w; });
 
-  let here = null, msg = '';
+  let here = null, msg = '', staleMins = 0;
   try {
-    here = await fix({ timeout:25000, maximumAge:0 });
+    try {
+      here = await fix({ timeout:25000, maximumAge:0 });
+    } catch (first) {
+      // no fresh fix (indoors, GPS-only): a clearly-aged last-known beats nothing
+      here = await fix({ timeout:5000, maximumAge: 30*60000 });
+      staleMins = Math.max(1, Math.round((Date.now() - here.ts)/60000));
+    }
     const gr = toGridRef(here.lat, here.lng);
     const poor = here.acc > 50;
     $('#fixbox').innerHTML = `
+      ${staleMins?`<div class="acc poor">LAST KNOWN position \u2014 ${staleMins} min old, not current</div>`:''}
       ${gr?`<div class="gridref">${gr}</div>`:''}
       <div class="fixbig">${here.lat.toFixed(5)}, ${here.lng.toFixed(5)}</div>
       <div class="acc${poor?' poor':''}">\u00b1${here.acc} m${poor?' — poor fix, wait for better if you can':''}</div>`;
     msg = `SOS \u2014 ${me} needs help.\n`
         + (why() ? why() + '\n' : '')
+        + (staleMins ? `LAST KNOWN position, ${staleMins} min old:\n` : '')
         + (gr ? `Grid ${gr}\n` : '')
         + `${here.lat.toFixed(5)}, ${here.lng.toFixed(5)} (\u00b1${here.acc} m)\n`
         + `https://www.openstreetmap.org/?mlat=${here.lat}&mlon=${here.lng}#map=16/${here.lat}/${here.lng}`;
     for (const id of ['fire','smsb','wa','share']) $('#'+id).disabled = false;
   } catch (e) {
-    const why = e && e.code === 1
+    const reason = e && e.code === 1
       ? 'Location permission is blocked. Check the padlock icon in the address bar (site permission), then Vanadium\u2019s own Location permission in Android settings.'
       : e && e.code === 3
       ? 'Timed out getting a fix. On GrapheneOS without network location this is GPS-only \u2014 it can need open sky and 30+ seconds from cold. Try outdoors, or enable Settings \u2192 Location \u2192 Network location.'
       : 'Position unavailable \u2014 no GPS fix could be made here.';
     $('#fixbox').innerHTML = `<p class="note" style="margin-top:0;color:var(--danger)">
-      ${why} You can still send a message without coordinates.</p>`;
+      ${reason} You can still send a message without coordinates.</p>`;
     msg = `SOS \u2014 ${me} needs help.` + (why() ? '\n' + why() : '') + '\nNo position available.';
     for (const id of ['fire','smsb','wa','share']) $('#'+id).disabled = false;
   }
@@ -12064,6 +12072,7 @@ async function renderSOS(){
     const gr = toGridRef(here.lat, here.lng);
     return `SOS \u2014 ${me} needs help.\n`
       + (why() ? why() + '\n' : '')
+      + (staleMins ? `LAST KNOWN position, ${staleMins} min old:\n` : '')
       + (gr ? `Grid ${gr}\n` : '')
       + `${here.lat.toFixed(5)}, ${here.lng.toFixed(5)} (\u00b1${here.acc} m)\n`
       + `https://www.openstreetmap.org/?mlat=${here.lat}&mlon=${here.lng}#map=16/${here.lat}/${here.lng}`;
@@ -12126,12 +12135,12 @@ async function renderShareLoc(){
         + `https://www.openstreetmap.org/?mlat=${here.lat}&mlon=${here.lng}#map=16/${here.lat}/${here.lng}`;
     for (const id of ['sms','wa','share']) $('#'+id).disabled = false;
   } catch (e) {
-    const why = e && e.code === 1
+    const reason = e && e.code === 1
       ? 'Location permission is blocked \u2014 check the padlock icon in the address bar, then the browser\u2019s own Location permission in Android settings.'
       : e && e.code === 3
       ? 'Timed out \u2014 GPS-only phones can need open sky and 30+ seconds from cold.'
       : 'Position unavailable \u2014 no fix could be made here.';
-    $('#fixbox').innerHTML = `<p class="note" style="margin-top:0;color:var(--danger)">${why}</p>`;
+    $('#fixbox').innerHTML = `<p class="note" style="margin-top:0;color:var(--danger)">${reason}</p>`;
     return;
   }
   $('#sms').onclick = () => { location.href = 'sms:' + numbers() + '?body=' + encodeURIComponent(msg); };
@@ -12262,7 +12271,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>f79059940329</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>0026d230a9d8</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
