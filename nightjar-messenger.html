@@ -11379,7 +11379,10 @@ function relative(loc, ts){
   return { text: lead + when, stale: age > 15*60000 };
 }
 function fix(opts={}){
-  return new Promise((res, rej) => {
+  /* High accuracy asks Android for GPS, which indoors can refuse even while a
+     network fix exists. So: GPS first; on anything but a permission block,
+     retry at network accuracy. The \u00b1 metres shown stays honest either way. */
+  const attempt = (hi, timeout) => new Promise((res, rej) => {
     if (!navigator.geolocation) return rej(new Error('no geolocation'));
     navigator.geolocation.getCurrentPosition(
       (p) => {
@@ -11387,8 +11390,11 @@ function fix(opts={}){
                     acc:Math.round(p.coords.accuracy), ts:p.timestamp || Date.now() };
         myFix = f; res(f);
       }, rej,
-      { enableHighAccuracy:true, timeout:opts.timeout ?? 20000, maximumAge:opts.maximumAge ?? 15000 });
+      { enableHighAccuracy:hi, timeout, maximumAge:opts.maximumAge ?? 15000 });
   });
+  const t = opts.timeout ?? 20000;
+  return attempt(true, t).catch((e) =>
+    (e && e.code === 1) ? Promise.reject(e) : attempt(false, Math.min(t, 10000)));
 }
 
 /* ---------- QR: hold two phones together instead of sending a key anywhere ---------- */
@@ -12271,7 +12277,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>0026d230a9d8</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>c40061c12ce7</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
