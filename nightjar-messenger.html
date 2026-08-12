@@ -12296,7 +12296,7 @@ function renderSettings(){
       <input class="inp" id="srelay" value="${esc(relay)}" spellcheck="false"
         placeholder="https://courier-relay.you.workers.dev" autocomplete="off">
       <label class="lb" for="stoken" style="margin-top:1rem">Relay password</label>
-      <input class="inp" id="stoken" value="${esc(relayToken)}" spellcheck="false"
+      <input class="inp" id="stoken" type="password" value="${esc(relayToken)}" spellcheck="false"
         autocapitalize="none" autocorrect="off" autocomplete="off"
         placeholder="Only needed if your relay is locked">
       <p class="note" style="margin-top:.4rem">If the person running the relay set a password, paste it
@@ -12342,7 +12342,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>1ea20eb874da</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>34ca626e9272</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
