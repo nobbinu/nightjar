@@ -11208,9 +11208,10 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
 /******/ ])["default"];
 });
 const $ = (s) => document.querySelector(s);
-const LS = { me:'courier.me', relay:'courier.relay', convs:'courier.convs', keep:'courier.keep' };
+const LS = { me:'courier.me', relay:'courier.relay', convs:'courier.convs', keep:'courier.keep', token:'courier.token' };
 let me = localStorage.getItem(LS.me) || '';
 let relay = localStorage.getItem(LS.relay) || '';
+let relayToken = localStorage.getItem(LS.token) || '';
 let convs = JSON.parse(localStorage.getItem(LS.convs) || '[]');
 let keepDays = Number(localStorage.getItem(LS.keep) ?? 30);   // 0 = keep indefinitely
 let openId = null, view = 'list', query = '';
@@ -11548,7 +11549,8 @@ async function connect(c){
   let s = socks.get(c.id);
   if (!s) { s = { rx:new Reassembler(), peers:0, tries:0 }; socks.set(c.id, s); }
   if (s.ws && (s.ws.readyState===0 || s.ws.readyState===1)) return;
-  const ws = new WebSocket(relay.replace(/^http/,'ws').replace(/\/+$/,'') + '/r/' + c.id);
+  const base = relay.replace(/^http/,'ws').replace(/\/+$/,'') + '/r/' + c.id;
+  const ws = new WebSocket(base + (relayToken ? '?t=' + encodeURIComponent(relayToken) : ''));
   ws.binaryType = 'arraybuffer'; s.ws = ws;
   ws.onopen = () => { s.tries = 0; ws.send(JSON.stringify({t:'sync', since:c.seq||0})); status(); };
   ws.onclose = () => { s.ws = null; status(); setTimeout(()=>connect(c), Math.min(30000, 1000*2**s.tries++)); };
@@ -12293,6 +12295,13 @@ function renderSettings(){
       <label class="lb" for="srelay" style="margin-top:1rem">Relay address</label>
       <input class="inp" id="srelay" value="${esc(relay)}" spellcheck="false"
         placeholder="https://courier-relay.you.workers.dev" autocomplete="off">
+      <label class="lb" for="stoken" style="margin-top:1rem">Relay password</label>
+      <input class="inp" id="stoken" value="${esc(relayToken)}" spellcheck="false"
+        autocapitalize="none" autocorrect="off" autocomplete="off"
+        placeholder="Only needed if your relay is locked">
+      <p class="note" style="margin-top:.4rem">If the person running the relay set a password, paste it
+      here. Without it a locked relay refuses to connect. It is not an encryption key \u2014 it only
+      decides who may reach the relay.</p>
       <p class="note">The relay passes sealed bytes between devices and holds anything undelivered for seven
       days. It cannot read any of it. It does see which devices talk to each other, when, and how much.</p>
       <div class="acts"><button class="btn" id="sv">Save</button></div>
@@ -12333,7 +12342,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>c53ac90eece8</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>1ea20eb874da</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -12418,9 +12427,10 @@ function renderSettings(){
   };
   $('#sv').onclick = () => {
     const n = $('#sme').value.trim(), r = $('#srelay').value.trim().replace(/\/+$/,'');
-    if (!n || !r) return toast('Both fields are needed');
-    me = n; relay = r;
+    if (!n || !r) return toast('Your name and the relay address are needed');
+    me = n; relay = r; relayToken = $('#stoken').value.trim();
     localStorage.setItem(LS.me, me); localStorage.setItem(LS.relay, relay);
+    localStorage.setItem(LS.token, relayToken);
     socks.forEach(s => s.ws && s.ws.close()); socks.clear();
     connectAll(); renderList(); toast('Saved');
   };
