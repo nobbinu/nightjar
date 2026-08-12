@@ -12236,6 +12236,49 @@ function renderInfo(){
   };
 }
 
+/* ---------- key backup ---------- */
+const bagSink = () => { const p=[]; return { write:b=>p.push(b.slice()), finish:()=>{
+  let n=0; p.forEach(x=>n+=x.length); const o=new Uint8Array(n); let k=0;
+  p.forEach(x=>{o.set(x,k);k+=x.length;}); return o; } }; };
+async function exportKeys(pass){
+  const payload = JSON.stringify({ v:1, exported:Date.now(),
+    convs: convs.map(({id,name,kind,key,fp,seq}) => ({id,name,kind,key,fp,seq})) });
+  const data = new TextEncoder().encode(payload);
+  const { result } = await seal({ reader:bytesReader(data), sink:bagSink(), mode:2, secret:pass,
+    meta:{ k:'keys', s:data.length, ts:Date.now() } });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([result]));
+  const d = new Date(), pad = (n)=>String(n).padStart(2,'0');
+  a.download = `nightjar-keys-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}.crr`;
+  a.click();
+  toast('Backup saved \u2014 keep it somewhere offline');
+}
+async function importKeysData(bytes, pass){
+  let meta, result;
+  try {
+    ({ meta, result } = await open({ reader:bytesReader(bytes), secret:pass, mode:2, sink:bytesSink() }));
+  } catch (e) {
+    toast(String(e.message)==='WRONG_KEY_TYPE'
+      ? 'That is a sealed message file, not a key backup'
+      : 'Wrong passphrase, or the file is damaged');
+    return 0;
+  }
+  let parsed;
+  try { parsed = JSON.parse(new TextDecoder().decode(result)); } catch { toast('Not a key backup'); return 0; }
+  if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.convs)) { toast('Not a key backup'); return 0; }
+  let added = 0, skipped = 0;
+  for (const c of parsed.convs) {
+    if (!c || !c.id || !c.key) continue;
+    if (conv(c.id)) { skipped++; continue; }
+    convs.push({ id:c.id, name:c.name||'Restored', kind:c.kind||'contact', key:c.key,
+                 fp:c.fp||'', seq:0 });
+    added++;
+  }
+  if (added) { saveConvs(); connectAll(); }
+  toast(added + ' restored' + (skipped ? ', ' + skipped + ' already here' : ''));
+  return added;
+}
+
 /* ---------- settings ---------- */
 function renderSettings(){
   view='form'; hideFab();
@@ -12262,6 +12305,19 @@ function renderSettings(){
       unlocked while you are using the app. It locks itself after five minutes in the background.</p>
     </div>
     <div class="card">
+      <h2 class="hd">Key backup</h2>
+      <p class="note" style="margin-top:0">Keys live only in this browser. If the phone is lost or the
+      browser clears its storage, they are gone and every conversation is lost with them. A backup
+      seals every key under a passphrase into one file.</p>
+      <p class="note"><strong>That file opens everything, past and future.</strong> Give it a strong
+      passphrase and keep it offline \u2014 a memory card in a drawer, not a cloud folder.</p>
+      <div class="acts">
+        <button class="btn" id="kexp">Export keys</button>
+        <button class="btn sec" id="krest">Restore keys</button>
+      </div>
+      <input type="file" id="keyfile" accept=".crr" class="hide">
+    </div>
+    <div class="card">
       <label class="lb" for="skeep">Keep messages for</label>
       <select class="inp" id="skeep">
         <option value="7">7 days</option>
@@ -12277,7 +12333,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>c40061c12ce7</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>c53ac90eece8</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -12326,6 +12382,24 @@ function renderSettings(){
       a.href = URL.createObjectURL(blob); a.download = 'courier-messenger.html'; a.click();
       toast('Saved — open it from your files, then check the hash');
     } catch { toast('Could not read this page; save it from the browser menu instead'); }
+  };
+  $('#kexp').onclick = async () => {
+    if (!convs.length) return toast('No conversations to back up yet');
+    const p = prompt('Choose a passphrase for the backup (8+ characters)');
+    if (!p) return;
+    if (p.length < 8) return toast('Too short \u2014 8 characters at least');
+    if (prompt('Enter it again') !== p) return toast('Those did not match');
+    await exportKeys(p);
+  };
+  $('#krest').onclick = () => $('#keyfile').click();
+  $('#keyfile').onchange = async () => {
+    const f = $('#keyfile').files[0];
+    $('#keyfile').value = '';
+    if (!f) return;
+    const p = prompt('Passphrase for this backup');
+    if (!p) return;
+    const added = await importKeysData(new Uint8Array(await f.arrayBuffer()), p);
+    if (added) renderSettings();
   };
   $('#skeep').value = String(keepDays);
   $('#skeep').onchange = async () => {
@@ -12529,6 +12603,7 @@ window.addEventListener('unhandledrejection', (e) => {
       .then(rs => rs.forEach(r => r.unregister())).catch(()=>{});
   }
   db = await idb();
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{});
   if (localStorage.getItem(VAULT)) { await purgeExpired(); return renderLock(); }
   await purgeExpired();
   setInterval(purgeExpired, 3600000);
