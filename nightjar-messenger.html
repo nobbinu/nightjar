@@ -12026,9 +12026,13 @@ async function renderSOS(){
         + `https://www.openstreetmap.org/?mlat=${here.lat}&mlon=${here.lng}#map=16/${here.lat}/${here.lng}`;
     for (const id of ['fire','smsb','wa','share']) $('#'+id).disabled = false;
   } catch (e) {
+    const why = e && e.code === 1
+      ? 'Location permission is blocked. Check the padlock icon in the address bar (site permission), then Vanadium\u2019s own Location permission in Android settings.'
+      : e && e.code === 3
+      ? 'Timed out getting a fix. On GrapheneOS without network location this is GPS-only \u2014 it can need open sky and 30+ seconds from cold. Try outdoors, or enable Settings \u2192 Location \u2192 Network location.'
+      : 'Position unavailable \u2014 no GPS fix could be made here.';
     $('#fixbox').innerHTML = `<p class="note" style="margin-top:0;color:var(--danger)">
-      No position available — location permission may be off, or there is no signal for a fix.
-      You can still send a message without coordinates.</p>`;
+      ${why} You can still send a message without coordinates.</p>`;
     msg = `SOS \u2014 ${me} needs help.` + (why() ? '\n' + why() : '') + '\nNo position available.';
     for (const id of ['fire','smsb','wa','share']) $('#'+id).disabled = false;
   }
@@ -12121,9 +12125,13 @@ async function renderShareLoc(){
         + `${here.lat.toFixed(5)}, ${here.lng.toFixed(5)} (\u00b1${here.acc} m)\n`
         + `https://www.openstreetmap.org/?mlat=${here.lat}&mlon=${here.lng}#map=16/${here.lat}/${here.lng}`;
     for (const id of ['sms','wa','share']) $('#'+id).disabled = false;
-  } catch {
-    $('#fixbox').innerHTML = `<p class="note" style="margin-top:0;color:var(--danger)">
-      No position available — location permission may be off, or no signal for a fix.</p>`;
+  } catch (e) {
+    const why = e && e.code === 1
+      ? 'Location permission is blocked \u2014 check the padlock icon in the address bar, then the browser\u2019s own Location permission in Android settings.'
+      : e && e.code === 3
+      ? 'Timed out \u2014 GPS-only phones can need open sky and 30+ seconds from cold.'
+      : 'Position unavailable \u2014 no fix could be made here.';
+    $('#fixbox').innerHTML = `<p class="note" style="margin-top:0;color:var(--danger)">${why}</p>`;
     return;
   }
   $('#sms').onclick = () => { location.href = 'sms:' + numbers() + '?body=' + encodeURIComponent(msg); };
@@ -12254,7 +12262,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>96b4c6b57933</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>f79059940329</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -12432,8 +12440,12 @@ async function sendLocation(){
                     kind:'loc', loc:payload, size:data.length };
     await transmit(c, bytesReader(data), { k:'loc', s:data.length, f:me, ts:local.ts }, local);
   }, (err) => {
-    toast(err.code === 1 ? 'Location permission refused' : 'Could not get a fix');
-  }, { enableHighAccuracy:true, timeout:15000, maximumAge:30000 });
+    toast(err.code === 1
+      ? 'Location blocked \u2014 check Vanadium\u2019s own Location permission in Android settings, not just the site\u2019s'
+      : err.code === 3
+      ? 'Timed out \u2014 GPS-only phones need open sky; first fix of the day is the slow one'
+      : 'Could not get a fix here');
+  }, { enableHighAccuracy:true, timeout:30000, maximumAge:30000 });
 }
 $('#picker').onchange = async () => {
   const c = conv(openId), f = $('#picker').files[0];
