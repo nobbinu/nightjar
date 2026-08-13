@@ -156,7 +156,8 @@ main{flex:1 1 auto;overflow:visible}
 .b.mid{border-bottom-left-radius:var(--r);margin-top:2px}
 .b.out.mid{border-bottom-right-radius:var(--r)}
 
-.b .who{font-size:.78rem;font-weight:650;color:var(--accent);margin-bottom:.15rem}
+.b .b.grp{position:relative;border-left:3px solid var(--who,transparent);padding-left:calc(.7rem - 0px)}
+.who{font-size:.78rem;font-weight:650;color:var(--accent);margin-bottom:.15rem}
 .b .ft{font-size:.68rem;color:var(--faint);margin-top:.2rem;text-align:right;
   display:flex;gap:.3rem;justify-content:flex-end;align-items:center}
 .b.out .ft{color:rgba(255,255,255,.72)}
@@ -11244,6 +11245,7 @@ let openId = null, view = 'list', query = '';
 const socks = new Map();
 
 const VAULT = 'courier.vault';
+const LOCKMODE = 'courier.lockmode';   // 'numeric'|'text' — which keyboard to show, NOT the secret
 let vaultKey = null;          // held in memory only, never written anywhere
 let hiddenSince = 0;
 const AUTOLOCK_MS = 5 * 60 * 1000;
@@ -11277,10 +11279,11 @@ async function recryptAll(){
     await put(openm);
   }
 }
-async function setPin(pin){
+async function setPin(pin, mode){
   const salt = randomBytes(16);
   vaultKey = await pinKey(pin, salt);
   localStorage.setItem(VAULT, JSON.stringify({ s:toBase64(salt), i:'', c:'' }));
+  if (mode) localStorage.setItem(LOCKMODE, mode);
   await persistVault();
   localStorage.removeItem(LS.convs);
   await recryptAll();                                // seal existing history too
@@ -11291,6 +11294,53 @@ async function unlockWith(pin){
   const pt = await crypto.subtle.decrypt({ name:'AES-GCM', iv:fromBase64(v.i) }, k, fromBase64(v.c));
   convs = JSON.parse(new TextDecoder().decode(pt));
   vaultKey = k;
+}
+/* In-app lock setup screen. mode='numeric' -> PIN (digit keypad); 'text' ->
+   passphrase (full keyboard). Uses inputmode so the phone shows the right keys. */
+function lockSetup(mode){
+  const isPin = mode === 'numeric';
+  view = 'locksetup'; hideFab();
+  document.querySelector('.bar').classList.add('hide');
+  $('#comp').classList.add('hide');
+  const title = isPin ? 'Quick PIN' : 'Passphrase';
+  const help = isPin
+    ? 'Casual lock only \u2014 at least 6 digits. Stops someone glancing at your unlocked phone, but a 6-digit PIN can be cracked in seconds if the phone is lost or taken. For real protection, use a passphrase instead.'
+    : 'At least 10 characters. Several random words is best (e.g. four unrelated words) \u2014 strong and easy to type. This is what actually protects your keys if the phone is lost or taken.';
+  const im = isPin ? 'numeric' : 'text';
+  const ph = isPin ? 'PIN' : 'Passphrase';
+  $('#main').innerHTML = `<div class="pad" style="padding-top:8vh"><div class="card">
+    <h2 class="hd">${title}</h2>
+    <p class="note" style="margin-top:0">${help}</p>
+    <input class="inp" id="ls1" type="password" inputmode="${im}" autocomplete="off"
+      autocapitalize="none" autocorrect="off" spellcheck="false"
+      placeholder="${ph}" style="margin-top:.6rem">
+    <input class="inp" id="ls2" type="password" inputmode="${im}" autocomplete="off"
+      autocapitalize="none" autocorrect="off" spellcheck="false"
+      placeholder="${'Enter it again'}" style="margin-top:.5rem">
+    <div class="acts">
+      <button class="btn" id="lsok">Set ${isPin?'PIN':'passphrase'}</button>
+      <button class="btn sec" id="lscancel">Cancel</button>
+    </div>
+  </div></div>`;
+  setTimeout(()=>$('#ls1') && $('#ls1').focus(), 60);
+  $('#lscancel').onclick = () => { renderSettings(); document.querySelector('.bar').classList.remove('hide'); };
+  $('#lsok').onclick = async () => {
+    const a = $('#ls1').value, b = $('#ls2').value;
+    if (isPin && !/^\d{6,}$/.test(a)) return toast('PIN must be at least 6 digits');
+    if (!isPin && a.length < 10) return toast('Passphrase must be at least 10 characters');
+    if (a !== b) return toast('Those did not match');
+    $('#lsok').disabled = true;
+    await setPin(a, mode);
+    document.querySelector('.bar').classList.remove('hide');
+    renderSettings();
+    toast(isPin ? 'PIN set' : 'Passphrase set');
+  };
+}
+function lockLabel(placeholder){
+  const m = localStorage.getItem(LOCKMODE);
+  if (m === 'numeric') return 'PIN';
+  if (m === 'text') return placeholder ? 'Passphrase' : 'passphrase';
+  return placeholder ? 'PIN or passphrase' : 'PIN or passphrase';
 }
 function lockNow(){
   if (!localStorage.getItem(VAULT)) return;
@@ -11305,10 +11355,10 @@ function renderLock(){
   $('#main').innerHTML = `<div class="pad" style="padding-top:18vh"><div class="card">
     <h2 class="hd">Nightjar is locked</h2>
     <p class="note" style="margin-top:0">Your conversation keys are sealed on this device.
-    Enter your PIN or passphrase to unlock them.</p>
-    <input class="inp" id="pin" type="password" autocomplete="off"
-      autocapitalize="none" autocorrect="off" spellcheck="false"
-      placeholder="PIN or passphrase" style="margin-top:.6rem">
+    Enter your ${lockLabel()} to unlock them.</p>
+    <input class="inp" id="pin" type="password" inputmode="${localStorage.getItem(LOCKMODE)==='numeric'?'numeric':'text'}"
+      autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
+      placeholder="${lockLabel(true)}" style="margin-top:.6rem">
     <div class="acts"><button class="btn" id="go">Unlock</button></div>
   </div></div>`;
   const go = async () => {
@@ -11319,7 +11369,7 @@ function renderLock(){
       await unlockWith(p);
       document.querySelector('.bar').classList.remove('hide');
       renderList(); connectAll();
-    } catch { $('#go').disabled = false; $('#pin').value=''; toast('Wrong PIN'); }
+    } catch { $('#go').disabled = false; $('#pin').value=''; toast('Wrong ' + lockLabel()); }
   };
   $('#go').onclick = go;
   $('#pin').onkeydown = (e) => { if (e.key==='Enter') go(); };
@@ -11348,10 +11398,26 @@ function dayLabel(ts){
   if (diff === 1) return 'Yesterday';
   return d.toLocaleDateString([], {day:'numeric', month:'long', year: diff > 300 ? 'numeric' : undefined});
 }
-const HUES = ['#e0574a','#3f82c9','#3fa87a','#b95fd4','#e0a03c','#5b6ee0','#d4557f','#3fa8a0'];
+const HUES = ['#e0574a','#3f82c9','#3fa87a','#b95fd4','#e0a03c','#5b6ee0','#d4557f','#3fa8a0','#c98a3c','#6bbf59','#e06fb0','#4aa3d4'];
 function hue(seed){
-  let h = 0; for (const ch of seed) h = (h*31 + ch.charCodeAt(0)) >>> 0;
+  let h = 2166136261 >>> 0;                       // FNV-1a: good spread across the palette
+  for (let i=0;i<seed.length;i++){ h ^= seed.charCodeAt(i); h = Math.imul(h,16777619) >>> 0; }
   return HUES[h % HUES.length];
+}
+/* Per-conversation sender colours: assign palette entries in order of first
+   appearance so the first HUES.length distinct senders are guaranteed distinct.
+   Beyond the palette, wrap deterministically by hash. Keyed per conversation. */
+const senderColours = new Map();   // convId -> Map(name -> colour)
+function senderHue(convId, name){
+  if (!convId || !name) return hue(name||'');
+  let m = senderColours.get(convId);
+  if (!m) { m = new Map(); senderColours.set(convId, m); }
+  if (m.has(name)) return m.get(name);
+  const used = new Set(m.values());
+  let col = HUES.find(c => !used.has(c));   // first unused palette colour
+  if (!col) col = hue(name);                // palette exhausted -> hash fallback
+  m.set(name, col);
+  return col;
 }
 const initials = (name) =>
   name.trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase() || '?';
@@ -11955,8 +12021,17 @@ function bubbleEl(m, prev){
                   && (m.ts - prev.ts) < 300000;
   wrap.className = 'b ' + (m.dir==='out'?'out ':'') + (grouped?'mid':'');
   const c = conv(m.conv);
-  if (m.dir==='in' && c && c.kind==='group' && !grouped) {
-    const w = document.createElement('div'); w.className='who'; w.textContent=m.from; wrap.appendChild(w);
+  // In a group, colour each sender: a left-stripe on their bubbles plus a tinted
+  // name label, both keyed to hue(sender) so they match and scale to any group size.
+  if (m.dir==='in' && c && c.kind==='group' && m.from) {
+    const col = senderHue(c.id, m.from);
+    wrap.classList.add('grp');
+    wrap.style.setProperty('--who', col);
+    if (!grouped) {
+      const w = document.createElement('div'); w.className='who';
+      w.textContent = m.from; w.style.color = col;
+      wrap.appendChild(w);
+    }
   }
   if (m.kind === 'text') {
     const t = document.createElement('div'); t.textContent = m.text; wrap.appendChild(t);
@@ -12542,7 +12617,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>9dfddc93d084</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>d36d25ae0043</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -12581,26 +12656,14 @@ function renderSettings(){
         if (openm.kind === 'bad' && raw.$s) continue;   // unopenable — leave as-is
         cleartext.push(openm);
       }
-      vaultKey = null; localStorage.removeItem(VAULT);   // now sealRecord is a no-op
+      vaultKey = null; localStorage.removeItem(VAULT); localStorage.removeItem(LOCKMODE);   // now sealRecord is a no-op
       for (const m of cleartext) await put(m);           // written unsealed
       localStorage.setItem(LS.convs, JSON.stringify(convs));
       renderSettings(); toast('Lock removed');
     };
   } else {
-    $('#setpin').onclick = async () => {
-      const p = prompt('Quick PIN — casual lock only.\n\nAt least 6 digits. This stops someone glancing at your unlocked phone, but it is NOT real protection: a 6-digit PIN can be cracked in seconds if your phone is lost or taken. For real protection, cancel and choose a passphrase instead.');
-      if (p === null) return;
-      if (!/^\d{6,}$/.test(p)) return toast('PIN must be at least 6 digits');
-      if (prompt('Enter it again') !== p) return toast('Those did not match');
-      await setPin(p); renderSettings(); toast('PIN set');
-    };
-    $('#setpass').onclick = async () => {
-      const p = prompt('Choose a passphrase — at least 10 characters.\n\nSeveral random words is best (e.g. four unrelated words). Longer is stronger. This is what actually protects your keys if the phone is lost or taken.');
-      if (p === null) return;
-      if (p.length < 10) return toast('Passphrase must be at least 10 characters');
-      if (prompt('Enter it again') !== p) return toast('Those did not match');
-      await setPin(p); renderSettings(); toast('Passphrase set');
-    };
+    $('#setpin').onclick = () => lockSetup('numeric');
+    $('#setpass').onclick = () => lockSetup('text');
   }
   $('#how').textContent = location.protocol.replace(':','') + (location.protocol==='file:'?' — fixed on this device':' — re-fetched each load');
   $('#grab').onclick = async () => {
