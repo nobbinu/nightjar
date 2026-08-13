@@ -11208,10 +11208,12 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
 /******/ ])["default"];
 });
 const $ = (s) => document.querySelector(s);
-const LS = { me:'courier.me', relay:'courier.relay', convs:'courier.convs', keep:'courier.keep', token:'courier.token' };
+const LS = { me:'courier.me', relay:'courier.relay', convs:'courier.convs', keep:'courier.keep', token:'courier.token', striploc:'courier.striploc' };
 let me = localStorage.getItem(LS.me) || '';
 let relay = localStorage.getItem(LS.relay) || '';
 let relayToken = localStorage.getItem(LS.token) || '';
+let stripLoc = localStorage.getItem(LS.striploc);
+stripLoc = stripLoc === null ? true : stripLoc === 'true';   // default on
 let convs = JSON.parse(localStorage.getItem(LS.convs) || '[]');
 let keepDays = Number(localStorage.getItem(LS.keep) ?? 30);   // 0 = keep indefinitely
 let openId = null, view = 'list', query = '';
@@ -11673,6 +11675,31 @@ async function sendText(c, text){
                   kind:'text', text, size:data.length };
   await transmit(c, bytesReader(data), { k:'text', s:data.length, f:me, ts:local.ts, mid:local.id }, local);
 }
+/* Re-encode a photo so the saved bytes carry no EXIF — no GPS, no timestamp,
+   no device. Canvas output contains only pixels. Images only; anything else
+   (video, documents) passes through untouched, since video metadata cannot be
+   cheaply stripped in the browser and must not be silently assumed clean. */
+async function stripPhotoLocation(file){
+  if (!stripLoc) return file;
+  if (!file.type || !file.type.startsWith('image/')) return file;   // not a photo
+  if (file.type === 'image/gif') return file;                        // would lose animation
+  try {
+    const bmp = await createImageBitmap(file);
+    const canvas = document.createElement('canvas');
+    canvas.width = bmp.width; canvas.height = bmp.height;
+    canvas.getContext('2d').drawImage(bmp, 0, 0);
+    bmp.close && bmp.close();
+    const type = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+    const blob = await new Promise((res) => canvas.toBlob(res, type, 0.92));
+    if (!blob) return file;                                          // fell back: keep original
+    // keep a sensible name, drop any original that might encode date/place
+    const ext = type === 'image/png' ? 'png' : 'jpg';
+    return new File([blob], 'photo.' + ext, { type });
+  } catch {
+    return file;                                                     // any error: send original
+  }
+}
+
 async function sendFile(c, file){
   const local = { id:crypto.randomUUID(), conv:c.id, dir:'out', ts:Date.now(), from:me,
                   kind:'file', name:file.name, type:file.type, blob:file, size:file.size };
@@ -12324,6 +12351,16 @@ function renderSettings(){
       unlocked while you are using the app. It locks itself after five minutes in the background.</p>
     </div>
     <div class="card">
+      <label class="lb">Photos</label>
+      <label class="pick" style="margin-top:.2rem">
+        <input type="checkbox" id="striploc"> 
+        <span>Remove location from photos before sending</span>
+      </label>
+      <p class="note">Strips the hidden GPS tag (and time and device) a camera adds, so a photo you
+      send can't give away where it was taken if it's later forwarded on. Slightly re-compresses the
+      image. <strong>Photos only</strong> — videos still carry their metadata.</p>
+    </div>
+    <div class="card">
       <h2 class="hd">Key backup</h2>
       <p class="note" style="margin-top:0">Keys live only in this browser. If the phone is lost or the
       browser clears its storage, they are gone and every conversation is lost with them. A backup
@@ -12352,7 +12389,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>f525eed6ba67</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>4fbe40095f0a</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -12395,12 +12432,25 @@ function renderSettings(){
   $('#how').textContent = location.protocol.replace(':','') + (location.protocol==='file:'?' — fixed on this device':' — re-fetched each load');
   $('#grab').onclick = async () => {
     try {
-      const res = await fetch(location.href, { cache:'reload' });
-      const blob = await res.blob();
+      /* Serialise the page already in memory — no network fetch, so this works
+         even where the host is blocked or offline. This is the exact document
+         you are running, byte for byte from the DOM. */
+      const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+      const blob = new Blob([html], { type:'text/html' });
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob); a.download = 'courier-messenger.html'; a.click();
-      toast('Saved — open it from your files, then check the hash');
-    } catch { toast('Could not read this page; save it from the browser menu instead'); }
+      a.href = URL.createObjectURL(blob);
+      a.download = 'nightjar-messenger.html';
+      a.click();
+      toast('Saved from memory — open it from your Files app to run it offline');
+    } catch {
+      toast('Could not save; use the browser menu \u2192 Save page instead');
+    }
+  };
+  $('#striploc').checked = stripLoc;
+  $('#striploc').onchange = () => {
+    stripLoc = $('#striploc').checked;
+    localStorage.setItem(LS.striploc, String(stripLoc));
+    toast(stripLoc ? 'Photos will have location removed' : 'Photos sent with original data');
   };
   $('#kexp').onclick = async () => {
     if (!convs.length) return toast('No conversations to back up yet');
@@ -12573,7 +12623,7 @@ $('#picker').onchange = async () => {
     a.click();
     return toast('Sealed — carry it however you like');
   }
-  await sendFile(c, f);
+  await sendFile(c, await stripPhotoLocation(f));
 };
 $('#importer').onchange = async () => {
   const f = $('#importer').files[0];
