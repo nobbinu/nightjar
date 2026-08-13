@@ -26,7 +26,7 @@
   --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;min-height:100%}
+html,body{margin:0;min-height:100%;overscroll-behavior:none}
 body{
   background:#0d0e13;color:#f2f3f7;font-family:var(--font);font-size:16px;
   display:flex;flex-direction:column;min-height:100dvh;-webkit-text-size-adjust:100%;
@@ -11306,7 +11306,7 @@ function lockSetup(mode){
   const help = isPin
     ? 'Casual lock only \u2014 at least 6 digits. Stops someone glancing at your unlocked phone, but a 6-digit PIN can be cracked in seconds if the phone is lost or taken. For real protection, use a passphrase instead.'
     : 'At least 10 characters. Several random words is best (e.g. four unrelated words) \u2014 strong and easy to type. This is what actually protects your keys if the phone is lost or taken.';
-  const im = isPin ? 'numeric' : 'text';
+  const im = isPin ? 'tel' : 'text';   // 'tel' gives a true dialler keypad, not qwerty+numbers
   const ph = isPin ? 'PIN' : 'Passphrase';
   $('#main').innerHTML = `<div class="pad" style="padding-top:8vh"><div class="card">
     <h2 class="hd">${title}</h2>
@@ -11356,7 +11356,7 @@ function renderLock(){
     <h2 class="hd">Nightjar is locked</h2>
     <p class="note" style="margin-top:0">Your conversation keys are sealed on this device.
     Enter your ${lockLabel()} to unlock them.</p>
-    <input class="inp" id="pin" type="password" inputmode="${localStorage.getItem(LOCKMODE)==='numeric'?'numeric':'text'}"
+    <input class="inp" id="pin" type="password" inputmode="${localStorage.getItem(LOCKMODE)==='numeric'?'tel':'text'}"
       autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
       placeholder="${lockLabel(true)}" style="margin-top:.6rem">
     <div class="acts"><button class="btn" id="go">Unlock</button></div>
@@ -12617,7 +12617,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>d36d25ae0043</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>ce43d74b30cf</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
