@@ -316,6 +316,11 @@ details[open] summary:before{content:'▾ '}
 .livebig{font-size:1.55rem;font-weight:700;margin:.25rem 0;line-height:1.15}
 .liveage{font-size:.85rem;opacity:.85;margin-top:.2rem}
 .liveage.old{color:var(--danger);opacity:1}
+.cmp{position:relative;width:96px;height:96px;margin:.35rem auto .1rem}
+.cmp-ring{position:absolute;inset:0;border:2px solid var(--danger);border-radius:50%;opacity:.45}
+.cmp-a{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transition:transform .12s linear;will-change:transform}
+.cmp-a svg{width:58%;height:58%}
+.cmp-f,.cmp-n{position:absolute;top:-4px;left:50%;transform:translateX(-50%);font-size:.72rem;font-weight:700;opacity:.85}
 </style>
 </head>
 <body>
@@ -11685,6 +11690,90 @@ function paintLiveStrip(){
   el.appendChild(sp); el.appendChild(b);
   el.classList.remove('hide');
 }
+/* ---------- compass heading (receiver's live view) ----------
+   Three sources, picked automatically, labelled honestly:
+   1. GPS course while moving  — immune to a vehicle's magnetic mess; used
+      whenever the receiver is doing > 1.5 m/s with a valid heading.
+   2. Magnetometer             — deviceorientationabsolute (Chromium) or
+      webkitCompassHeading (iOS, needs a tap to grant). Jitter is measured;
+      an unsteady needle says so and asks for a figure-eight calibration.
+   3. Neither                  — the dial falls back to north-up with an N
+      marker; the arrow then shows true bearing, never a fake heading. */
+const oriState = { attached:false, evt:null, h:null,
+                   iosNeed:false, iosGranted:false,
+                   mag:null, magTs:0, samples:[],
+                   gps:null, gpsTs:0, raf:0 };
+function pushHeadSample(h){
+  const a = oriState.samples; a.push(h); if (a.length > 8) a.shift();
+}
+function headUnsteady(){
+  const a = oriState.samples; if (a.length < 6) return false;
+  let sx=0, sy=0;
+  for (const h of a){ sx += Math.cos(h*Math.PI/180); sy += Math.sin(h*Math.PI/180); }
+  return Math.sqrt(sx*sx + sy*sy) / a.length < 0.92;   // resultant length: 1 = rock steady
+}
+function attachHeading(){
+  if (oriState.attached) return;
+  if (typeof DeviceOrientationEvent !== 'undefined'
+      && typeof DeviceOrientationEvent.requestPermission === 'function'
+      && !oriState.iosGranted){ oriState.iosNeed = true; return; }
+  const useAbs = 'ondeviceorientationabsolute' in window;
+  oriState.h = (e) => {
+    let h = null;
+    if (e.webkitCompassHeading != null) h = e.webkitCompassHeading;
+    else if ((e.absolute || useAbs) && e.alpha != null) h = (360 - e.alpha) % 360;
+    if (h == null || !Number.isFinite(h)) return;
+    oriState.mag = h; oriState.magTs = Date.now(); pushHeadSample(h);
+  };
+  oriState.evt = useAbs ? 'deviceorientationabsolute' : 'deviceorientation';
+  window.addEventListener(oriState.evt, oriState.h);
+  oriState.attached = true;
+}
+function detachHeading(){
+  if (oriState.attached){ window.removeEventListener(oriState.evt, oriState.h); oriState.attached = false; }
+  if (oriState.raf){ cancelAnimationFrame(oriState.raf); oriState.raf = 0; }
+  oriState.mag = null; oriState.gps = null; oriState.samples.length = 0;
+}
+function compassEl(bearing){
+  const c = document.createElement('div'); c.className = 'cmp'; c.dataset.bearing = String(bearing);
+  const ring = document.createElement('div'); ring.className = 'cmp-ring';
+  const a = document.createElement('div'); a.className = 'cmp-a';
+  a.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 2.5l5.5 17L12 15l-5.5 4.5z" fill="var(--danger)"/></svg>';
+  const f = document.createElement('div'); f.className = 'cmp-f'; f.textContent = '\u25b4';
+  const nl = document.createElement('div'); nl.className = 'cmp-n'; nl.textContent = 'N';
+  c.appendChild(ring); c.appendChild(a); c.appendChild(f); c.appendChild(nl);
+  return c;
+}
+function headingLoop(){
+  if (oriState.raf) return;
+  const step = () => {
+    if (!$('#livepad')){ oriState.raf = 0; return; }
+    const now = Date.now();
+    let head = null, src = null;
+    if (oriState.gps != null && now - oriState.gpsTs < 5000){ head = oriState.gps; src = 'gps'; }
+    else if (oriState.mag != null && now - oriState.magTs < 3000){ head = oriState.mag; src = 'mag'; }
+    document.querySelectorAll('#livepad .cmp').forEach(el => {
+      const b = Number(el.dataset.bearing);
+      const raw = head == null ? b : (b - head + 360) % 360;
+      let target = raw;
+      const prev = el.dataset.rot != null ? Number(el.dataset.rot) : raw;
+      while (target - prev > 180) target -= 360;    // rotate the short way round
+      while (target - prev < -180) target += 360;
+      el.dataset.rot = String(target);
+      const ar = el.querySelector('.cmp-a');
+      if (ar) ar.style.transform = 'rotate(' + target + 'deg)';
+      const fw = el.querySelector('.cmp-f'); if (fw) fw.style.display = head == null ? 'none' : '';
+      const nm = el.querySelector('.cmp-n'); if (nm) nm.style.display = head == null ? '' : 'none';
+    });
+    const st = $('#cmpstat');
+    if (st) st.textContent =
+        src === 'gps' ? 'Arrow: your direction of travel (GPS) \u2014 the reliable mode in a vehicle'
+      : src === 'mag' ? ('Arrow: device compass' + (headUnsteady() ? ' \u2014 unsteady; wave the device in a figure-eight to calibrate' : ''))
+      : 'Arrow: north up (N at top) \u2014 no compass reading';
+    oriState.raf = requestAnimationFrame(step);
+  };
+  oriState.raf = requestAnimationFrame(step);
+}
 function liveChooser(){
   const c = conv(openId); if (!c) return;
   const sheet = document.createElement('div'); sheet.className = 'sheet';
@@ -11741,11 +11830,18 @@ function renderLiveView(convId){
     liveWatchRx = navigator.geolocation.watchPosition((p) => {
       myFix = { lat:+p.coords.latitude.toFixed(6), lng:+p.coords.longitude.toFixed(6),
                 acc:Math.round(p.coords.accuracy), ts:p.timestamp || Date.now() };
+      const sp = p.coords.speed, hd = p.coords.heading;
+      if (hd != null && Number.isFinite(hd) && sp != null && Number.isFinite(sp) && sp > 1.5){
+        oriState.gps = hd; oriState.gpsTs = Date.now();
+      }
     }, () => {}, { enableHighAccuracy:true, maximumAge:5000, timeout:30000 });
   } catch {} }
+  attachHeading();
+  headingLoop();
   const stopBits = () => {
     if (liveTick) { clearInterval(liveTick); liveTick = null; }
     if (liveWatchRx != null) { try { navigator.geolocation.clearWatch(liveWatchRx); } catch {} liveWatchRx = null; }
+    detachHeading();
   };
   if (liveTick) clearInterval(liveTick);
   liveTick = setInterval(() => { if (!$('#livepad')) return stopBits(); paintLiveView(convId); }, 1000);
@@ -11755,6 +11851,19 @@ function paintLiveView(convId){
   const pad = $('#livepad'); if (!pad) return;
   const entries = liveEntries(convId);
   pad.innerHTML = '';
+  if (entries.length){
+    const st = document.createElement('div'); st.className = 'note'; st.id = 'cmpstat';
+    st.style.margin = '0 .2rem .2rem'; st.textContent = '\u2026';
+    pad.appendChild(st);
+    if (oriState.iosNeed && !oriState.iosGranted){
+      const eb = document.createElement('button'); eb.className = 'btn sec';
+      eb.style.margin = '0 0 .5rem'; eb.textContent = 'Enable compass';
+      eb.onclick = () => DeviceOrientationEvent.requestPermission().then(r => {
+        if (r === 'granted'){ oriState.iosGranted = true; oriState.iosNeed = false; attachHeading(); }
+      }).catch(()=>{});
+      pad.appendChild(eb);
+    }
+  }
   if (!entries.length){
     const card = document.createElement('div'); card.className = 'card';
     const p = document.createElement('p'); p.className = 'note'; p.style.marginTop = '0';
@@ -11783,8 +11892,10 @@ function paintLiveView(convId){
         else if (bd.distance > e._pd + 15) trend = ' \u2014 further away';
       }
       e._pd = bd.distance;
+      card.appendChild(compassEl(bd.bearing));
       const big = document.createElement('div'); big.className = 'livebig';
       big.textContent = d + ' ' + bd.compass + trend;
+      big.style.textAlign = 'center';
       card.appendChild(big);
     } else {
       const nb = document.createElement('p'); nb.className = 'note'; nb.style.marginTop = '.2rem';
@@ -12967,7 +13078,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>931608ecef05</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>6585f737ac55</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
