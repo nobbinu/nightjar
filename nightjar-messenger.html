@@ -279,6 +279,17 @@ details[open] summary:before{content:'▾ '}
 .lightbox button{position:absolute;top:calc(1rem + env(safe-area-inset-top));right:1rem;color:#fff;
   font-size:1.6rem;width:44px;height:44px}
 
+/* ---------- bubble action menu ---------- */
+.bmenu-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;
+  display:flex;align-items:flex-end;justify-content:center}
+.bmenu{width:100%;max-width:420px;background:#242631;border-radius:16px 16px 0 0;
+  padding:.5rem;margin:0 .4rem;box-shadow:0 -4px 24px rgba(0,0,0,.4);
+  padding-bottom:calc(.5rem + env(safe-area-inset-bottom))}
+.bmenu-item{display:block;width:100%;text-align:center;padding:1rem;font-size:1rem;
+  color:var(--fg);border-radius:10px}
+.bmenu-item:hover{background:#2f3240}
+.bmenu-item.danger{color:var(--danger)}
+
 /* ---------- toast ---------- */
 .toast{position:fixed;left:50%;transform:translateX(-50%);
   bottom:calc(5.5rem + env(safe-area-inset-bottom));background:var(--text);color:var(--bg);
@@ -411,7 +422,7 @@ function newSharedKey() {
    without either side revealing it. */
 async function fingerprint(rawKey) {
   const h = new Uint8Array(await subtle.digest('SHA-256', rawKey));
-  return Array.from(h.subarray(0, 8))
+  return Array.from(h.subarray(0, 10))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
     .toUpperCase()
@@ -441,6 +452,7 @@ async function messageKey(mode, secret, salt) {
    sink:   { write(Uint8Array), finish() -> result }                       */
 
 async function seal({ reader, meta, mode, secret, sink, chunkSize = DEFAULT_CHUNK, onProgress }) {
+  if (!Number.isInteger(chunkSize) || chunkSize <= 0) throw new Error('BAD_CHUNK_SIZE');
   const salt = randomBytes(16);
   const base = randomBytes(12);
   const key = await messageKey(mode, secret, salt);
@@ -459,6 +471,7 @@ async function seal({ reader, meta, mode, secret, sink, chunkSize = DEFAULT_CHUN
     key, enc.encode(JSON.stringify(meta))
   ));
   head.set(u32be(metaCt.length), 40);
+  const aadFull = head.subarray(0, HEADER_LEN);   // all 44 bytes, incl. metaLen
 
   sink.write(head);
   sink.write(metaCt);
@@ -466,9 +479,10 @@ async function seal({ reader, meta, mode, secret, sink, chunkSize = DEFAULT_CHUN
   let counter = 1;
   let done = 0;
   for (let off = 0; off < reader.size; off += chunkSize) {
+    if (counter >= 2 ** 32) throw new Error('TOO_MANY_CHUNKS');   // L-2: counter wrap guard
     const plain = await reader.slice(off, Math.min(off + chunkSize, reader.size));
     const ct = new Uint8Array(await subtle.encrypt(
-      { name: 'AES-GCM', iv: nonceFor(base, counter), additionalData: aad },
+      { name: 'AES-GCM', iv: nonceFor(base, counter), additionalData: aadFull },
       key, plain
     ));
     sink.write(u32be(ct.length));
@@ -492,7 +506,8 @@ async function open({ reader, secret, mode, sink, onProgress }) {
   const salt = head.subarray(8, 24);
   const base = head.subarray(24, 36);
   const metaLen = readU32be(head, 40);
-  const aad = head.subarray(0, HEADER_FIXED);
+  const aad = head.subarray(0, HEADER_FIXED);       // metadata aad (40 bytes)
+  const aadFull = head.subarray(0, HEADER_LEN);     // chunk aad (44 bytes, binds metaLen)
   const key = await messageKey(fileMode, secret, salt);
 
   let meta;
@@ -520,10 +535,19 @@ async function open({ reader, secret, mode, sink, onProgress }) {
     let pt;
     try {
       pt = await subtle.decrypt(
-        { name: 'AES-GCM', iv: nonceFor(base, counter), additionalData: aad }, key, ct
+        { name: 'AES-GCM', iv: nonceFor(base, counter), additionalData: aadFull }, key, ct
       );
     } catch {
-      throw new Error('SEAL_BROKEN');
+      // Legacy fallback: containers sealed before the full-header AAD change bound
+      // only the first 40 header bytes into chunks. Retry once with that AAD so old
+      // backups, sealed files, and queued frames still open.
+      try {
+        pt = await subtle.decrypt(
+          { name: 'AES-GCM', iv: nonceFor(base, counter), additionalData: aad }, key, ct
+        );
+      } catch {
+        throw new Error('SEAL_BROKEN');
+      }
     }
     sink.write(new Uint8Array(pt));
     counter++;
@@ -11281,9 +11305,10 @@ function renderLock(){
   $('#main').innerHTML = `<div class="pad" style="padding-top:18vh"><div class="card">
     <h2 class="hd">Nightjar is locked</h2>
     <p class="note" style="margin-top:0">Your conversation keys are sealed on this device.
-    Enter your PIN to unlock them.</p>
-    <input class="inp" id="pin" type="password" inputmode="numeric" autocomplete="off"
-      placeholder="PIN" style="margin-top:.6rem">
+    Enter your PIN or passphrase to unlock them.</p>
+    <input class="inp" id="pin" type="password" autocomplete="off"
+      autocapitalize="none" autocorrect="off" spellcheck="false"
+      placeholder="PIN or passphrase" style="margin-top:.6rem">
     <div class="acts"><button class="btn" id="go">Unlock</button></div>
   </div></div>`;
   const go = async () => {
@@ -11483,7 +11508,7 @@ async function sealRecord(m){
   return out;
 }
 async function openRecord(m){
-  if (!m.$s) return m;
+  if (!m.$s) return m.loc ? { ...m, loc: safeLoc(m.loc) } : m;
   if (!vaultKey) return { ...m, kind:'bad', text:'Locked message — unlock with your PIN to read it.' };
   try {
     const pt = await crypto.subtle.decrypt({ name:'AES-GCM', iv:fromBase64(m.$s.i) }, vaultKey,
@@ -11493,6 +11518,7 @@ async function openRecord(m){
     delete out.$s;
     for (const f of SEALED_FIELDS) if (inner[f] !== undefined) out[f] = inner[f];
     if (inner.$blob) out.blob = new Blob([fromBase64(inner.$blob)], { type: out.type || '' });
+    if (out.loc) out.loc = safeLoc(out.loc);
     return out;
   } catch { return { ...m, kind:'bad', text:'A stored message could not be opened.' }; }
 }
@@ -11537,6 +11563,31 @@ async function purgeExpired(){
   return gone;
 }
 const wipeAll = () => purge(Infinity);
+// Delete a single message record by its id.
+const deleteMessage = (mid) => new Promise(res=>{
+  const st = store('readwrite'); const q = st.delete(mid);
+  q.onsuccess = () => res(true); q.onerror = () => res(false);
+});
+// Plain-text form of any message, for copy-to-clipboard.
+function messageText(m){
+  if (m.kind === 'text') return m.text || '';
+  if (m.kind === 'sos') {
+    const parts = ['SOS' + (m.dir==='out' ? '' : ' from ' + (m.from||'')) ];
+    if (m.loc && m.loc.note) parts.push(m.loc.note);
+    if (m.loc && !m.loc.none && Number.isFinite(m.loc.lat)) {
+      const gr = toGridRef(m.loc.lat, m.loc.lng);
+      if (gr) parts.push('Grid ' + gr);
+      parts.push(m.loc.lat.toFixed(5) + ', ' + m.loc.lng.toFixed(5));
+    }
+    return parts.join('\n');
+  }
+  if (m.kind === 'loc') {
+    if (!m.loc || m.loc.none || !Number.isFinite(m.loc.lat)) return 'Location unavailable';
+    const gr = toGridRef(m.loc.lat, m.loc.lng);
+    return (gr ? 'Grid ' + gr + '\n' : '') + m.loc.lat.toFixed(5) + ', ' + m.loc.lng.toFixed(5);
+  }
+  return m.name || '';   // file/photo: the filename
+}
 const wipe = (id) => new Promise(res=>{
   const st = store('readwrite'), q = st.index('conv').getAllKeys(id);
   q.onsuccess = () => { q.result.forEach(k=>st.delete(k)); res(); };
@@ -11581,6 +11632,22 @@ const connectAll = () => convs.forEach(connect);
 
 /* ---------- receive ---------- */
 const blobSink = () => { const p=[]; return { write:b=>p.push(b.slice()), finish:()=>new Blob(p) }; };
+/* Coerce an untrusted location object (from a sealed message a peer authored) to
+   safe primitives. Any field out of range makes the whole loc null, so a crafted
+   message degrades to "no position" rather than crashing or injecting. lat/lng/acc
+   are forced to finite numbers; note is clamped to a plain string. */
+function safeLoc(raw){
+  if (!raw || typeof raw !== 'object') return null;
+  if (raw.none) return { none:true };
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v)) ? v : null;
+  const lat = num(raw.lat), lng = num(raw.lng);
+  if (lat === null || lng === null || lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  let acc = num(raw.acc); if (acc === null || acc < 0) acc = 0; acc = Math.round(acc);
+  const out = { lat, lng, acc };
+  if (raw.ts != null && num(raw.ts) !== null) out.ts = raw.ts;
+  if (typeof raw.note === 'string') out.note = raw.note.slice(0, 100);
+  return out;
+}
 const fileReader = (f) => ({ size:f.size, slice:async(a,b)=>new Uint8Array(await f.slice(a,b).arrayBuffer()) });
 
 async function receive(c, container){
@@ -11594,7 +11661,7 @@ async function receive(c, container){
     rec = { id: meta.mid || crypto.randomUUID(), conv:c.id, dir:'in', ts:meta.ts||Date.now(), from:meta.f||'Unknown',
             kind:meta.k, name:meta.n, type:meta.t, size:result.size,
             text: meta.k==='text' ? await result.text() : undefined,
-            loc: (meta.k==='loc'||meta.k==='sos') ? JSON.parse(await result.text()) : undefined,
+            loc: (meta.k==='loc'||meta.k==='sos') ? safeLoc(JSON.parse(await result.text())) : undefined,
             blob: (meta.k==='text'||meta.k==='loc'||meta.k==='sos') ? undefined : result };
   } catch (e) {
     rec = { id:crypto.randomUUID(), conv:c.id, dir:'in', ts:Date.now(), kind:'bad',
@@ -11691,11 +11758,12 @@ async function stripPhotoLocation(file){
     bmp.close && bmp.close();
     const type = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
     const blob = await new Promise((res) => canvas.toBlob(res, type, 0.92));
-    if (!blob) return file;                                          // fell back: keep original
+    if (!blob) { toast('Couldn\u2019t remove location \u2014 sent original photo'); return file; }
     // keep a sensible name, drop any original that might encode date/place
     const ext = type === 'image/png' ? 'png' : 'jpg';
     return new File([blob], 'photo.' + ext, { type });
   } catch {
+    toast('Couldn\u2019t remove location \u2014 sent original photo');
     return file;                                                     // any error: send original
   }
 }
@@ -11865,7 +11933,7 @@ function renderJoin(){
   $('#scan').onclick = () => scanQR((v) => { $('#kk').value = v.trim(); toast('Code scanned'); });
   $('#ok').onclick = async () => {
     const raw = $('#kk').value.trim();
-    if (/^[0-9A-Fa-f]{4}(\s+[0-9A-Fa-f]{4}){3}$/.test(raw))
+    if (/^[0-9A-Fa-f]{4}(\s+[0-9A-Fa-f]{4}){3,4}$/.test(raw))
       return toast('That is the safety number \u2014 it verifies a key but is not one. Tap "Copy key" on their device and paste that.');
     let key; try { key = fromBase64(raw.replace(/-/g,'+').replace(/_/g,'/')); } catch { key = null; }
     if (!key || key.length !== 32)
@@ -11924,19 +11992,32 @@ function bubbleEl(m, prev){
       ? (m.delivered ? ' · to '+m.delivered : ' · waiting') : '');
     wrap.appendChild(ft0);
     return wrap;
-  } else if (m.kind === 'loc' && m.loc) {
-    const { lat, lng, acc } = m.loc;
+  } else if (m.kind === 'loc' && m.loc && !m.loc.none) {
+    let { lat, lng, acc } = m.loc;   // coerced by safeLoc() at receive; re-check defensively
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) { lat = lng = null; }
+    acc = Number.isFinite(acc) ? Math.round(acc) : 0;
+    if (lat === null) {
+      const box = document.createElement('div'); box.className = 'loc';
+      const t = document.createElement('span'); t.className = 'nm'; t.textContent = 'Location unavailable';
+      box.appendChild(t); wrap.appendChild(box);
+    } else {
     const box = document.createElement('div'); box.className = 'loc';
-    box.innerHTML = `<span class="ic"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.3 7-11a7 7 0 10-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/></svg></span>
-      <span style="min-width:0"><span class="nm">Location</span>
-      <span class="sz">${lat.toFixed(5)}, ${lng.toFixed(5)} · ±${acc} m</span></span>`;
+    const ic = document.createElement('span'); ic.className = 'ic';
+    ic.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 21s7-6.3 7-11a7 7 0 10-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/></svg>';
+    const col = document.createElement('span'); col.style.minWidth = '0';
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = 'Location';
+    const sz = document.createElement('span'); sz.className = 'sz';
+    sz.textContent = lat.toFixed(5) + ', ' + lng.toFixed(5) + ' \u00b7 \u00b1' + acc + ' m';
+    col.appendChild(nm); col.appendChild(sz);
+    box.appendChild(ic); box.appendChild(col);
     wrap.appendChild(box);
+    }
     const rel = relative(m.loc, m.ts);
     const ageEl = document.createElement('div');
     ageEl.className = 'age' + (rel.stale ? ' stale' : '');
     ageEl.textContent = rel.text;
     wrap.appendChild(ageEl);
-    wrap.appendChild(mapLinks(lat, lng));
+    if (Number.isFinite(lat) && Number.isFinite(lng)) wrap.appendChild(mapLinks(lat, lng));
   } else {
     const type = m.type || '';
     if (m.blob && type.startsWith('image/')) {
@@ -11964,7 +12045,58 @@ function bubbleEl(m, prev){
   ft.textContent = clock(m.ts) + (m.dir==='out'
     ? (m.delivered==null ? '' : m.delivered ? ' · to '+m.delivered : ' · waiting') : '');
   wrap.appendChild(ft);
+
+  // long-press (touch) or right-click (desktop) -> copy / delete this message
+  if (m.kind !== 'bad') {
+    let pressTimer = null;
+    const openMenu = (ev) => { ev.preventDefault(); bubbleMenu(m, wrap); };
+    wrap.addEventListener('contextmenu', openMenu);
+    wrap.addEventListener('touchstart', () => {
+      pressTimer = setTimeout(() => bubbleMenu(m, wrap), 480);
+    }, { passive:true });
+    const cancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
+    wrap.addEventListener('touchend', cancel);
+    wrap.addEventListener('touchmove', cancel);
+    wrap.addEventListener('touchcancel', cancel);
+  }
   return wrap;
+}
+
+/* Small action sheet for one message bubble: Copy and Delete. */
+function bubbleMenu(m, wrap){
+  document.querySelector('.bmenu-backdrop')?.remove();
+  const back = document.createElement('div'); back.className = 'bmenu-backdrop';
+  const sheet = document.createElement('div'); sheet.className = 'bmenu';
+  const mk = (label, danger, fn) => {
+    const b = document.createElement('button');
+    b.className = 'bmenu-item' + (danger ? ' danger' : '');
+    b.textContent = label; b.onclick = fn; return b;
+  };
+  const close = () => back.remove();
+  const canCopy = ['text','sos','loc','file'].includes(m.kind);
+  if (canCopy) sheet.appendChild(mk('Copy', false, () => {
+    const txt = messageText(m);
+    if (navigator.clipboard) navigator.clipboard.writeText(txt).then(()=>toast('Copied')).catch(()=>toast('Copy failed'));
+    else toast('Copy not available');
+    close();
+  }));
+  sheet.appendChild(mk('Delete for me', true, async () => {
+    close();
+    if (!confirm('Delete this message from this device? It stays on other devices.')) return;
+    await deleteMessage(m.id);
+    wrap.remove();
+    // if that was the last bubble, restore the empty state
+    const t = $('#thread');
+    if (t && !t.querySelector('.b')) {
+      t.innerHTML = `<div class="empty"><p>No messages yet.<br>
+        Anything you send while they're offline waits on the relay for seven days.</p></div>`;
+    }
+    toast('Deleted');
+  }));
+  sheet.appendChild(mk('Cancel', false, close));
+  back.appendChild(sheet);
+  back.onclick = (e) => { if (e.target === back) close(); };
+  document.body.appendChild(back);
 }
 function appendBubble(m){
   const t = $('#thread'); if (!t) return;
@@ -12240,10 +12372,25 @@ function renderInfo(){
       <div class="acts"><button class="btn sec" id="ren">Rename</button></div>
     </div>
     <div class="card">
+      <label class="lb">Clear messages</label>
+      <p class="note" style="margin-top:0">Deletes every message in <strong>this</strong> conversation from
+      this device only, but keeps the conversation and its key so you can carry on. Messages already
+      collected by other devices are unaffected.</p>
+      <div class="acts"><button class="btn warn" id="clrmsg">Clear these messages</button></div>
+    </div>
+    <div class="card">
       <label class="lb">Leave</label>
       <p class="note" style="margin-top:0">Deletes this conversation and its messages from this device only.</p>
       <div class="acts"><button class="btn warn" id="del">Leave conversation</button></div>
     </div></div>`;
+  $('#clrmsg').onclick = async () => {
+    if (!confirm('Delete all messages in "'+c.name+'" from this device? The conversation and its key stay.')) return;
+    await wipe(c.id);
+    delete c.last; delete c.lastTs; delete c.lastFrom; delete c.lastDir; c.unread = 0;
+    saveConvs();
+    toast('Messages cleared');
+    renderInfo();
+  };
   $('#cp').onclick = () => navigator.clipboard.writeText(c.key).then(()=>toast('Key copied'));
   $('#qrp').onclick = () => {
     const box = $('#qrbox');
@@ -12347,8 +12494,14 @@ function renderSettings(){
       <h2 class="hd">App lock</h2>
       <p class="note" style="margin-top:0" id="pinstate"></p>
       <div class="acts" id="pinacts"></div>
-      <p class="note">With a PIN set, your conversation keys are encrypted on this device and only
-      unlocked while you are using the app. It locks itself after five minutes in the background.</p>
+      <p class="note">A lock encrypts your conversation keys on this device, unlocked only while you
+      use the app; it re-locks after five minutes in the background.</p>
+      <p class="note"><strong>PIN</strong> (6+ digits) stops a casual glance if someone picks up your
+      unlocked phone. It does <strong>not</strong> protect you if the phone is lost or taken — a short
+      PIN can be cracked quickly by someone who copies the data off the device.
+      <strong>Passphrase</strong> (10+ characters) is real protection at rest. Longer is stronger, and
+      <strong>several random words</strong> (e.g. four unrelated words) beat a short jumble and are
+      easier to type.</p>
     </div>
     <div class="card">
       <label class="lb">Photos</label>
@@ -12389,7 +12542,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>4fbe40095f0a</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>f87b1e0e9ead</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -12406,36 +12559,61 @@ function renderSettings(){
     </div></div>`;
   const hasPin = !!localStorage.getItem(VAULT);
   $('#pinstate').textContent = hasPin
-    ? 'A PIN is set. Keys are encrypted on this device.'
-    : 'No PIN. Conversation keys are stored unencrypted — anyone who unlocks this device can read them.';
+    ? 'App lock is on. Keys are encrypted on this device.'
+    : 'No lock. Conversation keys are stored unencrypted — anyone who unlocks this device can read them.';
   $('#pinacts').innerHTML = hasPin
-    ? '<button class="btn sec" id="lockbtn">Lock now</button><button class="btn warn" id="rmpin">Remove PIN</button>'
-    : '<button class="btn" id="setpin">Set a PIN</button>';
+    ? '<button class="btn sec" id="lockbtn">Lock now</button><button class="btn warn" id="rmpin">Remove lock</button>'
+    : '<button class="btn" id="setpin">Set a PIN</button><button class="btn sec" id="setpass">Set a passphrase</button>';
   if (hasPin) {
     $('#lockbtn').onclick = lockNow;
     $('#rmpin').onclick = async () => {
       if (!confirm('Remove the PIN? Keys will be stored unencrypted on this device.')) return;
-      await recryptAll();                            // unseal history while the key is live
-      vaultKey = null; localStorage.removeItem(VAULT);
+      // Decrypt every record FIRST (key still live), hold them in memory, THEN drop the
+      // key, THEN write them back in the clear. Re-sealing before dropping the key would
+      // lock history behind a key we're about to delete.
+      const all = await new Promise((res,rej)=>{
+        const q = store('readonly').getAll();
+        q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+      });
+      const cleartext = [];
+      for (const raw of all) {
+        const openm = await openRecord(raw);
+        if (openm.kind === 'bad' && raw.$s) continue;   // unopenable — leave as-is
+        cleartext.push(openm);
+      }
+      vaultKey = null; localStorage.removeItem(VAULT);   // now sealRecord is a no-op
+      for (const m of cleartext) await put(m);           // written unsealed
       localStorage.setItem(LS.convs, JSON.stringify(convs));
-      renderSettings(); toast('PIN removed');
+      renderSettings(); toast('Lock removed');
     };
   } else {
     $('#setpin').onclick = async () => {
-      const p = prompt('Choose a PIN (at least 6 characters)');
-      if (!p) return;
-      if (p.length < 6) return toast('Too short — at least 6 characters');
+      const p = prompt('Choose a PIN — at least 6 digits.\n\nQuick to type, but a short PIN only stops a casual glance. If your phone might be lost or taken, use a passphrase instead.');
+      if (p === null) return;
+      if (!/^\d{6,}$/.test(p)) return toast('PIN must be at least 6 digits');
       if (prompt('Enter it again') !== p) return toast('Those did not match');
       await setPin(p); renderSettings(); toast('PIN set');
+    };
+    $('#setpass').onclick = async () => {
+      const p = prompt('Choose a passphrase — at least 10 characters.\n\nSeveral random words is best (e.g. four unrelated words). Longer is stronger. This is what actually protects your keys if the phone is lost or taken.');
+      if (p === null) return;
+      if (p.length < 10) return toast('Passphrase must be at least 10 characters');
+      if (prompt('Enter it again') !== p) return toast('Those did not match');
+      await setPin(p); renderSettings(); toast('Passphrase set');
     };
   }
   $('#how').textContent = location.protocol.replace(':','') + (location.protocol==='file:'?' — fixed on this device':' — re-fetched each load');
   $('#grab').onclick = async () => {
     try {
       /* Serialise the page already in memory — no network fetch, so this works
-         even where the host is blocked or offline. This is the exact document
-         you are running, byte for byte from the DOM. */
-      const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+         even where the host is blocked or offline. Clone first and strip every
+         input's value attribute, so a shared copy never carries your relay
+         password, name, or relay address into someone else's hands. */
+      const clone = document.documentElement.cloneNode(true);
+      clone.querySelectorAll('input, textarea').forEach(el => {
+        el.removeAttribute('value'); el.value = '';
+      });
+      const html = '<!DOCTYPE html>\n' + clone.outerHTML;
       const blob = new Blob([html], { type:'text/html' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -12576,7 +12754,7 @@ async function importSealed(file){
     const rec = { id:crypto.randomUUID(), conv:c.id, dir:'in', ts:meta.ts||Date.now(),
       from:(meta.f||'Unknown') + ' (by hand)', kind:meta.k, name:meta.n, type:meta.t, size:result.size,
       text: meta.k==='text' ? await result.text() : undefined,
-      loc: meta.k==='loc' ? JSON.parse(await result.text()) : undefined,
+      loc: meta.k==='loc' ? safeLoc(JSON.parse(await result.text())) : undefined,
       blob: (meta.k==='text'||meta.k==='loc') ? undefined : result };
     await put(rec);
     if (openId===c.id) { appendBubble(rec); scrollEnd(); }
