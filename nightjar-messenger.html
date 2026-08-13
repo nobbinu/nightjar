@@ -12496,12 +12496,12 @@ function renderSettings(){
       <div class="acts" id="pinacts"></div>
       <p class="note">A lock encrypts your conversation keys on this device, unlocked only while you
       use the app; it re-locks after five minutes in the background.</p>
-      <p class="note"><strong>PIN</strong> (6+ digits) stops a casual glance if someone picks up your
-      unlocked phone. It does <strong>not</strong> protect you if the phone is lost or taken — a short
-      PIN can be cracked quickly by someone who copies the data off the device.
-      <strong>Passphrase</strong> (10+ characters) is real protection at rest. Longer is stronger, and
-      <strong>several random words</strong> (e.g. four unrelated words) beat a short jumble and are
-      easier to type.</p>
+      <p class="note"><strong>Use a passphrase.</strong> 10+ characters — and <strong>several random
+      words</strong> (e.g. four unrelated words) is best: strong and easy to type. This is the only
+      option that actually protects your keys if the phone is lost or taken.</p>
+      <p class="note">The <strong>quick PIN</strong> is a convenience lock only. It stops someone
+      glancing at your unlocked phone, but a 6-digit PIN can be cracked in seconds by anyone who copies
+      the data off a lost or seized device — so don't rely on it for real protection.</p>
     </div>
     <div class="card">
       <label class="lb">Photos</label>
@@ -12542,7 +12542,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>f87b1e0e9ead</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>9dfddc93d084</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -12563,7 +12563,7 @@ function renderSettings(){
     : 'No lock. Conversation keys are stored unencrypted — anyone who unlocks this device can read them.';
   $('#pinacts').innerHTML = hasPin
     ? '<button class="btn sec" id="lockbtn">Lock now</button><button class="btn warn" id="rmpin">Remove lock</button>'
-    : '<button class="btn" id="setpin">Set a PIN</button><button class="btn sec" id="setpass">Set a passphrase</button>';
+    : '<button class="btn" id="setpass">Set a passphrase (recommended)</button><button class="btn sec" id="setpin">Quick PIN — casual lock only</button>';
   if (hasPin) {
     $('#lockbtn').onclick = lockNow;
     $('#rmpin').onclick = async () => {
@@ -12588,7 +12588,7 @@ function renderSettings(){
     };
   } else {
     $('#setpin').onclick = async () => {
-      const p = prompt('Choose a PIN — at least 6 digits.\n\nQuick to type, but a short PIN only stops a casual glance. If your phone might be lost or taken, use a passphrase instead.');
+      const p = prompt('Quick PIN — casual lock only.\n\nAt least 6 digits. This stops someone glancing at your unlocked phone, but it is NOT real protection: a 6-digit PIN can be cracked in seconds if your phone is lost or taken. For real protection, cancel and choose a passphrase instead.');
       if (p === null) return;
       if (!/^\d{6,}$/.test(p)) return toast('PIN must be at least 6 digits');
       if (prompt('Enter it again') !== p) return toast('Those did not match');
