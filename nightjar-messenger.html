@@ -302,6 +302,10 @@ details[open] summary:before{content:'▾ '}
   @keyframes rise{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
   @keyframes pop{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 }
+#burn{position:relative;overflow:hidden;background:var(--danger);color:#fff;border:1px solid var(--danger);
+  touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#burnfill{position:absolute;inset:0;width:0%;background:rgba(0,0,0,.32);pointer-events:none}
+#burnlab{position:relative;z-index:1}
 </style>
 </head>
 <body>
@@ -11356,6 +11360,45 @@ function lockNow(){
   convs = []; vaultKey = null; openId = null;
   renderLock();
 }
+/* Burn everything: remove all Nightjar data from this device and reload into the
+   fresh-install state. Order is most-sensitive-first, so an interruption part-way
+   still destroys what matters: messages, then conversation keys and the vault,
+   then the remainder. Best-effort throughout — no step may block another.
+   Honest limit (stated in the UI): this deletes records, it does not overwrite
+   disk sectors; forensic erasure means wiping the device itself. */
+async function burnAll(){
+  try { socks.forEach(s => { try { s.ws && s.ws.close(); } catch{} }); socks.clear(); } catch{}
+  vaultKey = null; convs = []; openId = null;
+  try {                                              // 1. stored messages
+    await new Promise(res => { try {
+      const q = store('readwrite').clear();
+      q.onsuccess = q.onerror = res;
+    } catch { res(); } });
+  } catch{}
+  try { db && db.close(); } catch{}
+  try {                                              //    then the database itself
+    await new Promise(res => { const r = indexedDB.deleteDatabase('courier');
+      r.onsuccess = r.onerror = r.onblocked = res; });
+  } catch{}
+  try {                                              // 2. keys, vault, lock, relay token
+    [LS.convs, VAULT, LOCKMODE, LS.token].forEach(k => localStorage.removeItem(k));
+  } catch{}
+  try { localStorage.clear(); } catch{}              // 3. everything else in our scope
+  try { sessionStorage.clear(); } catch{}
+  try {                                              // 4. any cached copies of the app
+    if (window.caches && caches.keys) {
+      const ks = await caches.keys();
+      await Promise.all(ks.map(k => caches.delete(k)));
+    }
+  } catch{}
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      const rs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(rs.map(r => r.unregister()));
+    }
+  } catch{}
+  location.reload();                                 // boots into the welcome screen
+}
 function renderLock(){
   const numeric = localStorage.getItem(LOCKMODE) === 'numeric';   // masked text + digit pad; see lockSetup note
   view = 'lock'; hideFab();
@@ -12626,7 +12669,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>0ffee867931c</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>96333fe47a5e</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -12640,6 +12683,16 @@ function renderSettings(){
       <p class="note" style="margin-top:0">One key opens every message in a conversation, past and future —
       if it leaks, start a new one. Anything decrypted on the other person's device is theirs.
       And this is a web page: whoever controls where it's hosted could serve a different version.</p>
+    </div>
+    <div class="card">
+      <h2 class="hd">Burn everything</h2>
+      <p class="note" style="margin-top:0">Deletes all Nightjar messages, conversations, keys and settings
+      from this device. It cannot be undone, and without a key backup there is no way back in —
+      rejoining means pairing with everyone from scratch. Other people's devices are unaffected
+      and are not told.</p>
+      <p class="note">This is a clean-out, not forensic erasure — the browser may leave traces on disk
+      until the space is reused. For disk-level certainty, wipe the device itself.</p>
+      <div class="acts"><button class="btn" id="burn"><span id="burnfill"></span><span id="burnlab">Burn everything</span></button></div>
     </div></div>`;
   const hasPin = !!localStorage.getItem(VAULT);
   $('#pinstate').textContent = hasPin
@@ -12735,6 +12788,47 @@ function renderSettings(){
     saveConvs();
     toast(gone + ' message' + (gone===1?'':'s') + ' deleted');
   };
+  /* Burn everything: tap once to arm, then press and hold 3 s to fire.
+     Timed by timestamp comparison in a rAF loop, never a lone setTimeout.
+     Any release, drag-off, cancel or blur aborts with nothing banked;
+     an armed button left alone disarms itself after 5 s. */
+  {
+    const btn = $('#burn'), fill = $('#burnfill'), lab = $('#burnlab');
+    const HOLD_MS = 3000, DISARM_MS = 5000;
+    let armed = false, fired = false, t0 = 0, raf = 0, disarmT = 0;
+    const setFill = f => { fill.style.width = (Math.max(0, Math.min(1, f)) * 100).toFixed(1) + '%'; };
+    const stopHold = () => { if (raf) cancelAnimationFrame(raf); raf = 0; t0 = 0; setFill(0); };
+    const disarm = () => { clearTimeout(disarmT); stopHold(); armed = false;
+      lab.textContent = 'Burn everything'; };
+    const armWindow = () => { clearTimeout(disarmT); disarmT = setTimeout(disarm, DISARM_MS); };
+    const arm = () => { armed = true; lab.textContent = 'Hold to confirm \u2014 3 s'; armWindow(); };
+    const fire = async () => { if (fired) return; fired = true;
+      clearTimeout(disarmT); if (raf) cancelAnimationFrame(raf); raf = 0;
+      setFill(1); btn.disabled = true; lab.textContent = 'Burning\u2026';
+      try { navigator.vibrate && navigator.vibrate(50); } catch{}
+      await burnAll(); };
+    const tick = () => { if (!t0 || fired) return;
+      const f = (performance.now() - t0) / HOLD_MS;
+      if (f >= 1) return void fire();
+      setFill(f); raf = requestAnimationFrame(tick); };
+    const startHold = () => { if (!armed || fired || t0) return;
+      armWindow(); t0 = performance.now(); raf = requestAnimationFrame(tick); };
+    const abortHold = () => { if (fired) return; stopHold(); if (armed) armWindow(); };
+    btn.addEventListener('contextmenu', e => e.preventDefault());
+    btn.addEventListener('pointerdown', e => { e.preventDefault();
+      if (fired) return;
+      if (!armed) return arm();          // first press arms; the NEXT press is the hold
+      startHold(); });
+    ['pointerup','pointercancel','pointerleave'].forEach(ev => btn.addEventListener(ev, abortHold));
+    btn.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      if (e.repeat || fired) return;
+      if (!armed) return arm();
+      startHold(); });
+    btn.addEventListener('keyup', e => { if (e.key === 'Enter' || e.key === ' ') abortHold(); });
+    btn.addEventListener('blur', () => { if (!fired) disarm(); });
+  }
   $('#sv').onclick = () => {
     const n = $('#sme').value.trim(), r = $('#srelay').value.trim().replace(/\/+$/,'');
     if (!n || !r) return toast('Your name and the relay address are needed');
