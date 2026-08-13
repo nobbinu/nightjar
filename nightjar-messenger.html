@@ -11306,17 +11306,25 @@ function lockSetup(mode){
   const help = isPin
     ? 'Casual lock only \u2014 at least 6 digits. Stops someone glancing at your unlocked phone, but a 6-digit PIN can be cracked in seconds if the phone is lost or taken. For real protection, use a passphrase instead.'
     : 'At least 10 characters. Several random words is best (e.g. four unrelated words) \u2014 strong and easy to type. This is what actually protects your keys if the phone is lost or taken.';
-  const im = isPin ? 'tel' : 'text';   // 'tel' gives a true dialler keypad, not qwerty+numbers
+  /* PIN mode: type="password" makes Android keyboards ignore inputmode (secure-
+     keyboard mode forces full qwerty), so use a masked text input instead:
+     type="text" + inputmode="numeric" + -webkit-text-security:disc. Digits still
+     render as dots; pattern="[0-9]*" keeps older iOS on the digit pad. Passphrase
+     mode stays a real password field with the full keyboard. */
+  const ty = isPin ? 'text' : 'password';
+  const im = isPin ? 'numeric' : 'text';
+  const px = isPin ? ' pattern="[0-9]*"' : '';
+  const ms = isPin ? ';-webkit-text-security:disc' : '';
   const ph = isPin ? 'PIN' : 'Passphrase';
   $('#main').innerHTML = `<div class="pad" style="padding-top:8vh"><div class="card">
     <h2 class="hd">${title}</h2>
     <p class="note" style="margin-top:0">${help}</p>
-    <input class="inp" id="ls1" type="password" inputmode="${im}" autocomplete="off"
+    <input class="inp" id="ls1" type="${ty}" inputmode="${im}"${px} autocomplete="off"
       autocapitalize="none" autocorrect="off" spellcheck="false"
-      placeholder="${ph}" style="margin-top:.6rem">
-    <input class="inp" id="ls2" type="password" inputmode="${im}" autocomplete="off"
+      placeholder="${ph}" style="margin-top:.6rem${ms}">
+    <input class="inp" id="ls2" type="${ty}" inputmode="${im}"${px} autocomplete="off"
       autocapitalize="none" autocorrect="off" spellcheck="false"
-      placeholder="${'Enter it again'}" style="margin-top:.5rem">
+      placeholder="${'Enter it again'}" style="margin-top:.5rem${ms}">
     <div class="acts">
       <button class="btn" id="lsok">Set ${isPin?'PIN':'passphrase'}</button>
       <button class="btn sec" id="lscancel">Cancel</button>
@@ -11349,6 +11357,7 @@ function lockNow(){
   renderLock();
 }
 function renderLock(){
+  const numeric = localStorage.getItem(LOCKMODE) === 'numeric';   // masked text + digit pad; see lockSetup note
   view = 'lock'; hideFab();
   document.querySelector('.bar').classList.add('hide');
   $('#comp').classList.add('hide');
@@ -11356,9 +11365,9 @@ function renderLock(){
     <h2 class="hd">Nightjar is locked</h2>
     <p class="note" style="margin-top:0">Your conversation keys are sealed on this device.
     Enter your ${lockLabel()} to unlock them.</p>
-    <input class="inp" id="pin" type="password" inputmode="${localStorage.getItem(LOCKMODE)==='numeric'?'tel':'text'}"
+    <input class="inp" id="pin" type="${numeric?'text':'password'}" inputmode="${numeric?'numeric':'text'}"${numeric?' pattern="[0-9]*"':''}
       autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
-      placeholder="${lockLabel(true)}" style="margin-top:.6rem">
+      placeholder="${lockLabel(true)}" style="margin-top:.6rem${numeric?';-webkit-text-security:disc':''}">
     <div class="acts"><button class="btn" id="go">Unlock</button></div>
   </div></div>`;
   const go = async () => {
@@ -12617,7 +12626,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>ce43d74b30cf</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>0ffee867931c</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
