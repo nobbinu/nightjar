@@ -306,6 +306,16 @@ details[open] summary:before{content:'▾ '}
   touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 #burnfill{position:absolute;inset:0;width:0%;background:rgba(0,0,0,.32);pointer-events:none}
 #burnlab{position:relative;z-index:1}
+#livestrip{display:flex;align-items:center;justify-content:center;gap:.8rem;background:#7a1f18;color:#fff;padding:.45rem .8rem;font-size:.85rem}
+#livestrip.hide{display:none}
+#livestrip button{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.55);border-radius:6px;padding:.15rem .8rem;font-size:.85rem}
+#livebar{padding:.6rem .8rem 0}
+#livebar.hide{display:none}
+.livebtn{width:100%;text-align:left;background:var(--accent-soft);border:1px solid var(--danger);border-radius:10px;padding:.55rem .8rem;color:var(--text);font-size:.9rem}
+.livestale{opacity:.55}
+.livebig{font-size:1.55rem;font-weight:700;margin:.25rem 0;line-height:1.15}
+.liveage{font-size:.85rem;opacity:.85;margin-top:.2rem}
+.liveage.old{color:var(--danger);opacity:1}
 </style>
 </head>
 <body>
@@ -330,6 +340,7 @@ details[open] summary:before{content:'▾ '}
   <input class="search" id="search" type="search" placeholder="Search messages" autocomplete="off">
 </div>
 <div class="strip hide" id="strip">Connecting…</div>
+<div class="hide" id="livestrip"></div>
 <div class="prog"><i id="progfill"></i></div>
 
 <main id="main"></main>
@@ -11356,6 +11367,7 @@ function lockLabel(placeholder){
 }
 function lockNow(){
   if (!localStorage.getItem(VAULT)) return;
+  if (liveShare) stopLiveShare(false);   // locking pauses everything; the share does not survive it
   socks.forEach(s => s.ws && s.ws.close()); socks.clear();
   convs = []; vaultKey = null; openId = null;
   renderLock();
@@ -11367,6 +11379,7 @@ function lockNow(){
    Honest limit (stated in the UI): this deletes records, it does not overwrite
    disk sectors; forensic erasure means wiping the device itself. */
 async function burnAll(){
+  try { if (liveShare) stopLiveShare(false); } catch{}
   try { socks.forEach(s => { try { s.ws && s.ws.close(); } catch{} }); socks.clear(); } catch{}
   vaultKey = null; convs = []; openId = null;
   try {                                              // 1. stored messages
@@ -11542,6 +11555,258 @@ function fix(opts={}){
   return attempt(true, t).catch((e) =>
     (e && e.code === 1) ? Promise.reject(e) : attempt(false, Math.min(t, 10000)));
 }
+
+/* ---------- live location ----------
+   Ephemeral by design: 'live' messages are never written to IndexedDB and never
+   become bubbles. Receivers keep only the latest fix per sender, in memory.
+   The only persistent trace is the plain-text start/stop announcement.
+   Sender: watchPosition + screen wake lock; sends every 10 s when moving
+   (>25 m), every 30 s when still, holds the latest fix through signal gaps and
+   sends it on the next tick after reconnection. A share always ends: on its
+   timer, on Stop, on lock, or on burn. */
+let liveShare = null;        // sender state: { convIds, until, watchId, hb, wake, lastFix, sentFix, lastSent }
+const liveNow = new Map();   // receiver state: convId -> Map(sender -> {lat,lng,acc,ts,until,rx})
+const LIVE_FRESH = 30000, LIVE_STALE = 120000, LIVE_DROP = 7200000;
+
+function safeLive(raw){
+  if (!raw || typeof raw !== 'object') return null;
+  if (raw.end === true) return { end:true };
+  const base = safeLoc(raw);
+  if (!base || base.none) return null;
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v)) ? v : null;
+  const now = Date.now();
+  let ts = num(raw.ts); if (ts === null || ts > now + 300000) ts = now;
+  const out = { lat:base.lat, lng:base.lng, acc:base.acc, ts };
+  const u = num(raw.until);
+  if (u !== null && u > now - 600000 && u < now + 26*3600000) out.until = u;
+  return out;
+}
+const liveEntries = (convId) => {
+  const m = liveNow.get(convId); if (!m) return [];
+  const now = Date.now();
+  return [...m.entries()].filter(([,e]) =>
+    !(e.until && now > e.until + 60000) && (now - e.ts < LIVE_DROP));
+};
+function liveChanged(convId){
+  if (view === 'thread' && openId === convId) updateLiveChip(convId);
+  if ($('#livepad') && openId === convId) paintLiveView(convId);
+}
+async function sendLiveKind(convId, payload){
+  const c = conv(convId); if (!c) return;
+  const data = new TextEncoder().encode(JSON.stringify(payload));
+  try {
+    await transmit(c, bytesReader(data),
+      { k:'live', s:data.length, f:me, ts:Date.now(), mid:crypto.randomUUID() },
+      null, { ephemeral:true, quiet:true });
+  } catch {}
+}
+async function acquireWake(){
+  try {
+    if (navigator.wakeLock && liveShare)
+      liveShare.wake = await navigator.wakeLock.request('screen');
+  } catch {}    // low battery, unsupported, hidden page — sharing continues without it
+}
+async function maybeSendLive(){
+  const ls = liveShare; if (!ls || !ls.lastFix) return;
+  const now = Date.now();
+  const moved = ls.sentFix
+    ? bearingDistance(ls.sentFix.lat, ls.sentFix.lng, ls.lastFix.lat, ls.lastFix.lng).distance
+    : Infinity;
+  if (now - ls.lastSent < (moved > 25 ? 10000 : 60000)) return;
+  ls.lastSent = now; ls.sentFix = ls.lastFix;
+  const payload = { ...ls.lastFix, ...(ls.until ? { until:ls.until } : {}) };
+  for (const id of ls.convIds) await sendLiveKind(id, payload);
+}
+function tickLive(){
+  if (!liveShare) return;
+  if (liveShare.until && Date.now() >= liveShare.until) return void stopLiveShare(true, 'timer');
+  maybeSendLive();
+  paintLiveStrip();
+}
+function startLiveShare(convIds, durMs, saver){
+  if (!navigator.geolocation) return toast('This browser has no location access');
+  if (liveShare) stopLiveShare(false);           // replace, don't stack
+  liveShare = { convIds:[...convIds], until: durMs ? Date.now() + durMs : null, saver:!!saver,
+                watchId:null, poll:null, hb:null, wake:null, lastFix:null, sentFix:null, lastSent:0 };
+  acquireWake();
+  const onFix = (f) => { myFix = f; if (liveShare) { liveShare.lastFix = f; maybeSendLive(); } };
+  if (saver){
+    /* Battery saver: the GPS receiver is not held open — one deliberate fix a
+       minute. Coarser track, cooler phone. The screen still stays awake: that
+       is the platform's price for any web-page tracking, saver or not. */
+    const poll = () => fix({ timeout:20000, maximumAge:0 })
+      .then(f => { if (liveShare){ liveShare.lastSent = 0; onFix(f); } }).catch(()=>{});
+    poll();
+    liveShare.poll = setInterval(poll, 60000);
+  } else {
+    try {
+      liveShare.watchId = navigator.geolocation.watchPosition((p) => {
+        onFix({ lat:+p.coords.latitude.toFixed(6), lng:+p.coords.longitude.toFixed(6),
+                acc:Math.round(p.coords.accuracy), ts:p.timestamp || Date.now() });
+      }, () => {}, { enableHighAccuracy:true, maximumAge:0, timeout:30000 });
+    } catch {}
+  }
+  liveShare.hb = setInterval(tickLive, 5000);
+  paintLiveStrip();
+}
+async function stopLiveShare(sendEnd, why){
+  const ls = liveShare; if (!ls) return;
+  liveShare = null;
+  try { if (ls.watchId != null) navigator.geolocation.clearWatch(ls.watchId); } catch {}
+  if (ls.poll) clearInterval(ls.poll);
+  clearInterval(ls.hb);
+  try { ls.wake && ls.wake.release && ls.wake.release(); } catch {}
+  paintLiveStrip();
+  if (!sendEnd) return;
+  for (const id of ls.convIds){
+    await sendLiveKind(id, { end:true });
+    const c = conv(id);
+    if (c) { try { await sendText(c, why === 'timer'
+      ? 'Live location ended — timer ran out.'
+      : 'Stopped sharing live location.'); } catch {} }
+  }
+}
+const fmtLeft = (ms) => {
+  const m = Math.ceil(ms / 60000);
+  return m >= 60 ? Math.floor(m/60) + ' h ' + (m%60) + ' min' : m + ' min';
+};
+function paintLiveStrip(){
+  const el = $('#livestrip'); if (!el) return;
+  if (!liveShare) { el.classList.add('hide'); el.innerHTML = ''; return; }
+  el.innerHTML = '';
+  const sp = document.createElement('span');
+  sp.textContent = '\u25cf Sharing live location \u2014 '
+    + (liveShare.until ? fmtLeft(liveShare.until - Date.now()) + ' left' : 'until stopped')
+    + (liveShare.saver ? ' \u00b7 battery saver' : '')
+    + ' \u00b7 keep this screen on';
+  const b = document.createElement('button');
+  b.textContent = 'Stop';
+  b.onclick = () => stopLiveShare(true);
+  el.appendChild(sp); el.appendChild(b);
+  el.classList.remove('hide');
+}
+function liveChooser(){
+  const c = conv(openId); if (!c) return;
+  const sheet = document.createElement('div'); sheet.className = 'sheet';
+  sheet.innerHTML = `<div class="sheet-in">
+    <p class="note" style="padding:.2rem 1rem .5rem">Sends your position to <strong>this conversation only</strong>,
+    every few seconds while the screen is on. It keeps the screen awake (heavy on battery), pauses if the
+    phone locks, and always ends \u2014 on the timer or when you tap Stop on the red banner.</p>
+    <button data-d="900000">Share for 15 minutes</button>
+    <button data-d="3600000">Share for 1 hour</button>
+    <button data-d="0">Until I stop it</button>
+    <label class="pick" style="margin:.3rem 1rem"><input type="checkbox" id="lsav">
+      <span>Battery saver \u2014 one fix a minute, GPS not held on. Coarser track; best for long shares. The screen stays awake either way \u2014 that's the biggest battery cost regardless.</span></label>
+    <button data-a="x" class="cancel">Cancel</button></div>`;
+  sheet.onclick = async (e) => {
+    if (e.target.closest('.pick')) return;                 // ticking the box must not dismiss
+    const b = e.target.closest('[data-d],[data-a]');
+    if (!b && e.target !== sheet) return;
+    const saver = !!(sheet.querySelector('#lsav') && sheet.querySelector('#lsav').checked);
+    sheet.remove();
+    if (!b || b.dataset.a === 'x') return;
+    const dur = Number(b.dataset.d);
+    const label = dur === 900000 ? '15 minutes' : dur === 3600000 ? '1 hour' : null;
+    try { await sendText(c, label
+      ? 'Sharing my live location for ' + label + '.'
+      : 'Sharing my live location until I stop it.'); } catch {}
+    startLiveShare([c.id], dur || null, saver);
+    toast('Sharing live \u2014 keep the screen on');
+  };
+  document.body.appendChild(sheet);
+}
+/* Receiver: the chip in a conversation says only THAT someone is sharing.
+   Viewing the position is its own deliberate step (tap to follow). */
+function updateLiveChip(convId){
+  const bar = $('#livebar'); if (!bar || openId !== convId) return;
+  const names = liveEntries(convId).map(([n]) => n);
+  if (!names.length) { bar.classList.add('hide'); bar.innerHTML = ''; return; }
+  bar.innerHTML = '';
+  const b = document.createElement('button'); b.className = 'livebtn';
+  b.textContent = '\u25cf Live now: ' + names.join(', ') + ' \u2014 tap to follow';
+  b.onclick = () => renderLiveView(convId);
+  bar.appendChild(b);
+  bar.classList.remove('hide');
+}
+let liveTick = null, liveWatchRx = null;
+function renderLiveView(convId){
+  const c = conv(convId); if (!c) return;
+  view = 'form'; hideFab(); openId = convId;
+  chrome({ back:true, gear:false, title:'Live \u2014 ' + c.name });
+  $('#main').innerHTML = '<div class="pad" id="livepad"></div>';
+  /* The receiver's own position (for distance and bearing) is only read while
+     this view is open — opening it is the consent. Denied or unavailable is
+     fine: coordinates and grid still show. */
+  if (navigator.geolocation) { try {
+    liveWatchRx = navigator.geolocation.watchPosition((p) => {
+      myFix = { lat:+p.coords.latitude.toFixed(6), lng:+p.coords.longitude.toFixed(6),
+                acc:Math.round(p.coords.accuracy), ts:p.timestamp || Date.now() };
+    }, () => {}, { enableHighAccuracy:true, maximumAge:5000, timeout:30000 });
+  } catch {} }
+  const stopBits = () => {
+    if (liveTick) { clearInterval(liveTick); liveTick = null; }
+    if (liveWatchRx != null) { try { navigator.geolocation.clearWatch(liveWatchRx); } catch {} liveWatchRx = null; }
+  };
+  if (liveTick) clearInterval(liveTick);
+  liveTick = setInterval(() => { if (!$('#livepad')) return stopBits(); paintLiveView(convId); }, 1000);
+  paintLiveView(convId);
+}
+function paintLiveView(convId){
+  const pad = $('#livepad'); if (!pad) return;
+  const entries = liveEntries(convId);
+  pad.innerHTML = '';
+  if (!entries.length){
+    const card = document.createElement('div'); card.className = 'card';
+    const p = document.createElement('p'); p.className = 'note'; p.style.marginTop = '0';
+    p.textContent = 'Nobody is sharing live in this conversation right now.';
+    card.appendChild(p); pad.appendChild(card);
+    return;
+  }
+  const now = Date.now();
+  for (const [from, e] of entries){
+    const age = now - e.ts;
+    const stale = age > LIVE_STALE;
+    const card = document.createElement('div'); card.className = 'card' + (stale ? ' livestale' : '');
+    const nm = document.createElement('div'); nm.className = 'lb'; nm.textContent = from;
+    card.appendChild(nm);
+    if (stale){
+      const w = document.createElement('div'); w.className = 'acc poor';
+      w.textContent = 'LAST KNOWN \u2014 not current'; card.appendChild(w);
+    }
+    if (myFix && now - myFix.ts < 5*60000){
+      const bd = bearingDistance(myFix.lat, myFix.lng, e.lat, e.lng);
+      const d = bd.distance < 1000 ? Math.round(bd.distance/10)*10 + ' m'
+              : (bd.distance/1000).toFixed(1) + ' km';
+      let trend = '';
+      if (typeof e._pd === 'number'){
+        if (bd.distance < e._pd - 15) trend = ' \u2014 closing';
+        else if (bd.distance > e._pd + 15) trend = ' \u2014 further away';
+      }
+      e._pd = bd.distance;
+      const big = document.createElement('div'); big.className = 'livebig';
+      big.textContent = d + ' ' + bd.compass + trend;
+      card.appendChild(big);
+    } else {
+      const nb = document.createElement('p'); nb.className = 'note'; nb.style.marginTop = '.2rem';
+      nb.textContent = 'Distance and direction need this device\u2019s own position \u2014 allow location, or navigate by the grid reference below.';
+      card.appendChild(nb);
+    }
+    const gr = toGridRef(e.lat, e.lng);
+    if (gr){ const g = document.createElement('div'); g.className = 'gridref'; g.textContent = gr; card.appendChild(g); }
+    const co = document.createElement('div'); co.className = 'l2';
+    co.style.fontFamily = 'var(--mono)'; co.style.fontSize = '.78rem'; co.style.opacity = '.75';
+    co.textContent = e.lat.toFixed(5) + ', ' + e.lng.toFixed(5) + ' \u00b7 \u00b1' + e.acc + ' m';
+    card.appendChild(co);
+    const ageEl = document.createElement('div');
+    ageEl.className = 'liveage' + (age > LIVE_FRESH ? ' old' : '');
+    ageEl.textContent = 'fix ' + (age < 120000 ? Math.max(0, Math.round(age/1000)) + ' s' : Math.round(age/60000) + ' min') + ' ago'
+      + (e.until ? ' \u00b7 share ends in ' + fmtLeft(Math.max(0, e.until - now)) : '');
+    card.appendChild(ageEl);
+    card.appendChild(mapLinks(e.lat, e.lng));
+    pad.appendChild(card);
+  }
+}
+
 
 /* ---------- QR: hold two phones together instead of sending a key anywhere ---------- */
 function qrSvg(text, px=240){
@@ -11773,6 +12038,27 @@ async function receive(c, container){
   try {
     let result;
     ({ meta, result } = await open({ reader:bytesReader(container), secret:fromBase64(c.key), sink:blobSink() }));
+    /* Live updates never touch storage or the thread. Latest-fix-per-sender
+       only; replays off the relay's 7-day queue are dropped by timestamp and
+       expiry, so a reconnect burst cannot resurrect an old share. */
+    if (meta.k === 'live'){
+      let p = null; try { p = safeLive(JSON.parse(await result.text())); } catch {}
+      if (!p) return;
+      const from = String(meta.f || 'Unknown').slice(0, 60);
+      if (from === me) return;                                  // own frame echoed on resync
+      let mm = liveNow.get(c.id);
+      if (p.end){ if (mm && mm.delete(from)) liveChanged(c.id); return; }
+      const now = Date.now();
+      if (now - p.ts > LIVE_DROP) return;                       // ancient replay
+      if (p.until && now > p.until + 60000) return;             // share already over
+      if (!mm){ mm = new Map(); liveNow.set(c.id, mm); }
+      const cur = mm.get(from);
+      if (cur && cur.ts >= p.ts) return;                        // out-of-order replay
+      if (cur) p._pd = cur._pd;
+      mm.set(from, { ...p, rx:now });
+      liveChanged(c.id);
+      return;
+    }
     // my own message, come back to me off the queue on a resync — I already have it
     if (meta.mid && await haveMessage(meta.mid)) return;
     if (meta.mid) seenMids.add(meta.mid);
@@ -11799,9 +12085,9 @@ async function receive(c, container){
 }
 
 /* ---------- send ---------- */
-async function transmit(c, reader, meta, local){
+async function transmit(c, reader, meta, local, opts={}){
   const s = socks.get(c.id);
-  if (!s || !s.ws || s.ws.readyState !== 1) { toast('Not connected — nothing sent'); return; }
+  if (!s || !s.ws || s.ws.readyState !== 1) { if (!opts.quiet) toast('Not connected — nothing sent'); return; }
   const fill = $('#progfill');
   const big = reader.size > 512*1024;
   s.lastDelivered = null;
@@ -11845,6 +12131,7 @@ async function transmit(c, reader, meta, local){
   await push(new Uint8Array(0), true);           // flush the tail
   if (sent !== total) console.error('frame count drift', sent, total);
   fill.style.width = '0';
+  if (opts.ephemeral) return;    // live updates: sent and gone — no record, no bubble
   await new Promise(r=>setTimeout(r,120));
   local.delivered = s.lastDelivered;
   await put(local);
@@ -12243,7 +12530,8 @@ async function openThread(id){
   chrome({ back:true, info:true, gear:false, composer:true, title:c.name,
            av:{ seed:c.id, name:c.name } });
   paintHead();
-  $('#main').innerHTML = '<div id="thread"></div>';
+  $('#main').innerHTML = '<div id="livebar" class="hide"></div><div id="thread"></div>';
+  updateLiveChip(id);
   lastRendered = null;
   const msgs = await history(id);
   if (!msgs.length) {
@@ -12280,6 +12568,10 @@ async function renderSOS(){
         : '<p class="note" style="margin-top:0">No conversations yet.</p>'}
       <p class="note">Sent sealed, the same as any other message. Anyone who has the app open gets it
       straight away; anyone offline collects it when they next open it.</p>
+      <label class="pick"><input type="checkbox" id="sosl" checked>
+        <span>Also share my live location with them for 1 hour</span></label>
+      <p class="note">Live sharing keeps the screen awake and needs the app open \u2014 it turns
+      "where I was" into "follow me in". Untick if you'd rather send the fix only.</p>
     </div>
     <div class="card">
       <span class="lb" for="why">What's wrong? (optional)</span>
@@ -12369,6 +12661,12 @@ async function renderSOS(){
     $('#fire').disabled = true; $('#fire').textContent = 'SENDING…';
     const sent = await alertConvs();
     $('#fire').textContent = sent ? 'SENT TO ' + sent : 'SENT';
+    const wantLive = $('#sosl') && $('#sosl').checked;
+    const chosen = [...document.querySelectorAll('[data-c]:checked')].map(b=>b.dataset.c);
+    if (wantLive && sent && chosen.length && navigator.geolocation){
+      startLiveShare(chosen, 3600000);
+      toast('Sharing live for 1 hour \u2014 keep the screen on');
+    }
   };
   const finalMsg = () => {
     // rebuild so anything typed after the fix arrived is included
@@ -12669,7 +12967,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>96333fe47a5e</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>931608ecef05</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -12866,6 +13164,7 @@ $('#attach').onclick = () => {
   sheet.innerHTML = `<div class="sheet-in">
     <button data-a="file"><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 3v5h5M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/></svg></span>File, photo or video</button>
     <button data-a="loc"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.3 7-11a7 7 0 10-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/></svg></span>Current location (sealed, in this chat)</button>
+    <button data-a="live"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><path d="M7.8 7.8a6 6 0 000 8.4M16.2 7.8a6 6 0 010 8.4M4.9 4.9a10 10 0 000 14.2M19.1 4.9a10 10 0 010 14.2"/></svg></span>Share live location (sealed, in this chat)</button>
     <button data-a="shloc"><span class="ic"><svg viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg></span>Location by text or app</button>
     <button data-a="save"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M4 19h16"/></svg></span>Save as a sealed file</button>
     <button data-a="load"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4M4 19h16"/></svg></span>Open a sealed file</button>
@@ -12877,6 +13176,7 @@ $('#attach').onclick = () => {
     sheet.remove();
     if (a === 'file') $('#picker').click();
     if (a === 'loc') sendLocation();
+    if (a === 'live') liveChooser();
     if (a === 'shloc') renderShareLoc();
     if (a === 'save') exportSealed();
     if (a === 'load') $('#importer').click();
@@ -13027,6 +13327,15 @@ window.addEventListener('unhandledrejection', (e) => {
     if (document.hidden) { hiddenSince = Date.now(); return; }
     if (vaultKey && hiddenSince && Date.now() - hiddenSince > AUTOLOCK_MS) return lockNow();
     connectAll();
+    if (liveShare){                     // waking the phone refreshes the share at once
+      acquireWake();
+      fix({ timeout:15000, maximumAge:0 }).then(f => {
+        if (!liveShare) return;
+        liveShare.lastFix = f; liveShare.lastSent = 0;
+        maybeSendLive();
+      }).catch(()=>{});
+      paintLiveStrip();
+    }
   });
 })();
 </script>
