@@ -12198,7 +12198,7 @@ async function receive(c, container){
 /* ---------- send ---------- */
 async function transmit(c, reader, meta, local, opts={}){
   const s = socks.get(c.id);
-  if (!s || !s.ws || s.ws.readyState !== 1) { if (!opts.quiet) toast('Not connected — nothing sent'); return; }
+  if (!s || !s.ws || s.ws.readyState !== 1) { if (!opts.quiet) toast('Not connected — nothing sent'); return false; }
   const fill = $('#progfill');
   const big = reader.size > 512*1024;
   s.lastDelivered = null;
@@ -12242,7 +12242,7 @@ async function transmit(c, reader, meta, local, opts={}){
   await push(new Uint8Array(0), true);           // flush the tail
   if (sent !== total) console.error('frame count drift', sent, total);
   fill.style.width = '0';
-  if (opts.ephemeral) return;    // live updates: sent and gone — no record, no bubble
+  if (opts.ephemeral) return true;   // live updates: sent and gone — no record, no bubble
   await new Promise(r=>setTimeout(r,120));
   local.delivered = s.lastDelivered;
   await put(local);
@@ -12251,6 +12251,7 @@ async function transmit(c, reader, meta, local, opts={}){
          : local.kind==='loc' ? 'Location' : (local.name||'Attachment');
   c.lastTs = local.ts; c.lastFrom = me; c.lastDir = 'out'; saveConvs();
   if (openId === c.id) { appendBubble(local); scrollEnd(); }
+  return true;
 }
 async function sendText(c, text){
   const data = new TextEncoder().encode(text);
@@ -12661,6 +12662,21 @@ function lightbox(src){
 }
 
 /* ---------- SOS ---------- */
+/* SOS position watch: keeps sharpening the fix while the SOS screen is open.
+   betterFix decides whether a new reading replaces the current one: take it if
+   we have nothing, if it's at least as accurate, or if the current fix is over
+   a minute old (fresh-but-rougher beats stale-but-sharp for a moving person). */
+let sosWatchId = null;
+function stopSOSWatch(){
+  if (sosWatchId != null && navigator.geolocation) navigator.geolocation.clearWatch(sosWatchId);
+  sosWatchId = null;
+}
+function betterFix(cur, cand){
+  if (!cand || !Number.isFinite(cand.lat) || !Number.isFinite(cand.lng)) return false;
+  if (!cur) return true;
+  return cand.acc <= cur.acc || (cand.ts - cur.ts) > 60000;
+}
+
 async function renderSOS(){
   view='form'; hideFab();
   chrome({ back:true, gear:false, title:'SOS' });
@@ -12669,7 +12685,7 @@ async function renderSOS(){
   $('#main').innerHTML = `<div class="pad">
     <div class="card">
       <span class="lb">Your position</span>
-      <div id="fixbox"><p class="note" style="margin-top:0">Getting a fix…</p></div>
+      <div id="fixbox"><p class="note" style="margin-top:0">Getting a fix… SEND SOS works now \u2014 the position is attached the moment one arrives.</p></div>
     </div>
     <div class="card">
       <span class="lb">Alert these conversations</span>
@@ -12702,6 +12718,7 @@ async function renderSOS(){
         placeholder="Phone number, e.g. 07700 900312">
     </div>
     <button class="bigred" id="fire" disabled>SEND SOS</button>
+    <div class="note" id="sosstat" style="text-align:center;margin:.35rem 0 0"></div>
     <div class="acts" style="margin-top:0">
       <button class="btn sec" id="smsb" disabled>Text it (SMS)</button>
       <button class="btn sec" id="wa" disabled>WhatsApp</button>
@@ -12717,66 +12734,158 @@ async function renderSOS(){
   const why = () => $('#why').value.trim().slice(0,100);
   document.querySelectorAll('.chip').forEach(ch => ch.onclick = () => { $('#why').value = ch.dataset.w; });
 
-  let here = null, msg = '', staleMins = 0;
-  try {
-    try {
-      here = await fix({ timeout:25000, maximumAge:0 });
-    } catch (first) {
-      // no fresh fix (indoors, GPS-only): a clearly-aged last-known beats nothing
-      here = await fix({ timeout:5000, maximumAge: 30*60000 });
-      staleMins = Math.max(1, Math.round((Date.now() - here.ts)/60000));
-    }
+  /* Position never gates sending: every button is live immediately, a GPS watch
+     keeps sharpening the fix while this screen is open, and the message is built
+     from the best fix at the moment of the tap. */
+  let here = null, staleMins = 0;
+  const paintFix = () => {
+    if (!here) return;
     const gr = toGridRef(here.lat, here.lng);
     const poor = here.acc > 50;
     $('#fixbox').innerHTML = `
       ${staleMins?`<div class="acc poor">LAST KNOWN position \u2014 ${staleMins} min old, not current</div>`:''}
       ${gr?`<div class="gridref">${gr}</div>`:''}
       <div class="fixbig">${here.lat.toFixed(5)}, ${here.lng.toFixed(5)}</div>
-      <div class="acc${poor?' poor':''}">\u00b1${here.acc} m${poor?' — poor fix, wait for better if you can':''}</div>`;
-    msg = `SOS \u2014 ${me} needs help.\n`
-        + (why() ? why() + '\n' : '')
-        + (staleMins ? `LAST KNOWN position, ${staleMins} min old:\n` : '')
-        + (gr ? `Grid ${gr}\n` : '')
-        + `${here.lat.toFixed(5)}, ${here.lng.toFixed(5)} (\u00b1${here.acc} m)\n`
-        + `https://www.openstreetmap.org/?mlat=${here.lat}&mlon=${here.lng}#map=16/${here.lat}/${here.lng}`;
-    for (const id of ['fire','smsb','wa','share']) $('#'+id).disabled = false;
-  } catch (e) {
-    const reason = e && e.code === 1
-      ? 'Location permission is blocked. Check the padlock icon in the address bar (site permission), then Vanadium\u2019s own Location permission in Android settings.'
-      : e && e.code === 3
-      ? 'Timed out getting a fix. On GrapheneOS without network location this is GPS-only \u2014 it can need open sky and 30+ seconds from cold. Try outdoors, or enable Settings \u2192 Location \u2192 Network location.'
-      : 'Position unavailable \u2014 no GPS fix could be made here.';
-    $('#fixbox').innerHTML = `<p class="note" style="margin-top:0;color:var(--danger)">
-      ${reason} You can still send a message without coordinates.</p>`;
-    msg = `SOS \u2014 ${me} needs help.` + (why() ? '\n' + why() : '') + '\nNo position available.';
-    for (const id of ['fire','smsb','wa','share']) $('#'+id).disabled = false;
+      <div class="acc${poor?' poor':''}">\u00b1${here.acc} m${poor?' \u2014 poor fix, still sharpening\u2026':''}</div>`;
+  };
+  for (const id of ['fire','smsb','wa','share']) $('#'+id).disabled = false;
+  /* Fallback chain: network-accuracy fix, then a clearly-labelled last-known
+     one, then an honest reason. Runs at most once. Triggered immediately when
+     the GPS watch reports a hard error (a phone that has already said no
+     shouldn't leave someone staring at "Getting a fix…"), or after 12 s of
+     watch silence (GPS cold start under cover). */
+  let fbRan = false;
+  const fallbackFix = async () => {
+    if (fbRan || here || view !== 'form') return;
+    fbRan = true;
+    try {
+      const f = await fix({ timeout:8000, maximumAge:0 });
+      if (betterFix(here, f)) { here = f; staleMins = 0; paintFix(); }
+    } catch (e1) {
+      try {
+        const f = await fix({ timeout:5000, maximumAge: 30*60000 });
+        if (!here) { here = f; staleMins = Math.max(1, Math.round((Date.now() - f.ts)/60000)); paintFix(); }
+      } catch (e) {
+        if (here) return;
+        const reason = e && e.code === 1
+          ? 'Location permission is blocked. Check the padlock icon in the address bar (site permission), then Vanadium\u2019s own Location permission in Android settings.'
+          : e && e.code === 3
+          ? 'Timed out getting a fix. On GrapheneOS without network location this is GPS-only \u2014 it can need open sky and 30+ seconds from cold. Try outdoors, or enable Settings \u2192 Location \u2192 Network location.'
+          : 'Position unavailable \u2014 no GPS fix could be made here.';
+        $('#fixbox').innerHTML = `<p class="note" style="margin-top:0;color:var(--danger)">
+          ${reason} SEND SOS still works \u2014 the message will say no position was available.</p>`;
+      }
+    }
+  };
+  if (navigator.geolocation) {
+    stopSOSWatch();
+    sosWatchId = navigator.geolocation.watchPosition((p) => {
+      const cand = { lat:+p.coords.latitude.toFixed(6), lng:+p.coords.longitude.toFixed(6),
+                     acc:Math.round(p.coords.accuracy), ts:p.timestamp || Date.now() };
+      if (betterFix(here, cand)) { here = cand; myFix = cand; staleMins = 0; paintFix(); }
+    }, () => { void fallbackFix(); }, { enableHighAccuracy:true, maximumAge:0 });
   }
+  setTimeout(fallbackFix, 12000);
 
+  /* Reconnect-and-wait: nudge connect() (it has its own backoff) and poll for an
+     open socket for up to waitMs. */
+  const ensureSock = async (c, waitMs) => {
+    connect(c);
+    const t0 = Date.now();
+    for (;;) {
+      const s = socks.get(c.id);
+      if (s && s.ws && s.ws.readyState === 1) return true;
+      if (Date.now() - t0 >= waitMs) return false;
+      await new Promise(r=>setTimeout(r,200));
+    }
+  };
+  /* One conversation, up to three attempts with reconnects between. Same mid across
+     retries, so receivers de-duplicate if an earlier attempt half-arrived. Returns
+     the relay's live-forward count: how many devices had the app open right now. */
+  const sendOne = async (c) => {
+    const body = JSON.stringify({ ...(here || { lat:0, lng:0, acc:0, none:true }),
+                                  ...(why() ? { note: why() } : {}) });
+    const data = new TextEncoder().encode(body);
+    const local = { id:crypto.randomUUID(), conv:c.id, dir:'out', ts:Date.now(), from:me,
+                    kind:'sos', loc: here || null, size:data.length };
+    for (let a = 0; a < 3; a++) {
+      if (await ensureSock(c, a === 0 ? 4000 : 8000)) {
+        const ok = await transmit(c, bytesReader(data),
+            { k:'sos', s:data.length, f:me, ts:local.ts, mid:local.id }, local)
+          .then(r => r !== false).catch(() => false);
+        if (ok) return { ok:true, delivered: (typeof local.delivered==='number' ? local.delivered : null) };
+      }
+      if (a < 2) await new Promise(r=>setTimeout(r, 1200*(a+1)));
+    }
+    return { ok:false };
+  };
   const alertConvs = async () => {
     const chosen = [...document.querySelectorAll('[data-c]:checked')].map(b=>b.dataset.c);
     let sent = 0;
-    for (const id of chosen) {
-      const c = conv(id); if (!c) continue;
-      const body = JSON.stringify({ ...(here || { lat:0, lng:0, acc:0, none:true }),
-                                    ...(why() ? { note: why() } : {}) });
-      const data = new TextEncoder().encode(body);
-      const local = { id:crypto.randomUUID(), conv:c.id, dir:'out', ts:Date.now(), from:me,
-                      kind:'sos', loc: here || null, size:data.length };
-      try { await transmit(c, bytesReader(data), { k:'sos', s:data.length, f:me, ts:local.ts, mid:local.id }, local); sent++; }
-      catch {}
-    }
+    for (const id of chosen) { const c = conv(id); if (c && (await sendOne(c)).ok) sent++; }
     return sent;
   };
 
-  $('#fire').onclick = async () => {
-    $('#fire').disabled = true; $('#fire').textContent = 'SENDING…';
-    const sent = await alertConvs();
-    $('#fire').textContent = sent ? 'SENT TO ' + sent : 'SENT';
+  /* SEND: one pass tries every chosen conversation (sendOne itself retries with
+     reconnects). If anything is still unsent, keep trying automatically — an
+     injured person shouldn't have to keep tapping. Tapping while it retries stops
+     it; tapping again resumes. Receivers de-duplicate by message id, so repeated
+     attempts can never double-deliver. "Reached N now" is the relay's live count
+     of devices that had the app open; everyone else collects from the relay. */
+  let pendingRetry = null, sosSending = false, sosStop = false, liveStarted = false;
+  const stat = (t) => { const el = $('#sosstat'); if (el) el.textContent = t; };
+  const btn  = (t, enabled) => { const b = $('#fire'); if (!b) return; b.textContent = t; b.disabled = !enabled; };
+  const maybeLive = (sentConvs, chosen) => {
+    if (liveStarted || !sentConvs) return;
     const wantLive = $('#sosl') && $('#sosl').checked;
-    const chosen = [...document.querySelectorAll('[data-c]:checked')].map(b=>b.dataset.c);
-    if (wantLive && sent && chosen.length && navigator.geolocation){
+    if (wantLive && chosen.length && navigator.geolocation) {
+      liveStarted = true;
       startLiveShare(chosen, 3600000);
       toast('Sharing live for 1 hour \u2014 keep the screen on');
+    }
+  };
+  $('#fire').onclick = async () => {
+    if (sosSending) { sosStop = true; btn('STOPPING…', false); return; }
+    const chosenAll = [...document.querySelectorAll('[data-c]:checked')].map(b=>b.dataset.c);
+    const chosen = pendingRetry || chosenAll;
+    if (!chosen.length) return toast('Pick at least one conversation');
+    sosSending = true; sosStop = false;
+    let remaining = chosen, reached = 0, sentConvs = chosenAll.length - chosen.length, attempt = 0;
+    for (;;) {
+      attempt++;
+      btn(attempt === 1 ? 'SENDING…' : 'STILL TRYING — attempt '+attempt+' (tap to stop)', attempt > 1);
+      const failed = [];
+      for (const id of remaining) {
+        const c = conv(id);
+        const r = c ? await sendOne(c) : { ok:false };
+        if (r.ok) { sentConvs++; if (typeof r.delivered === 'number') reached += r.delivered; }
+        else failed.push(id);
+      }
+      remaining = failed;
+      if (!remaining.length) {
+        pendingRetry = null; sosSending = false;
+        btn('SENT ✓' + (sentConvs>1 ? ' — '+sentConvs+' conversations' : ''), false);
+        stat(reached > 0
+          ? 'Reached '+reached+' device'+(reached>1?'s':'')+' with the app open right now. Anyone else collects it from the relay when they next open Nightjar.'
+          : 'No one had the app open just now — the alert is on the relay and arrives the moment anyone opens Nightjar (kept 7 days). Consider the text/WhatsApp buttons below too.');
+        maybeLive(sentConvs, chosenAll);
+        return;
+      }
+      if (sosStop || view !== 'form') {
+        pendingRetry = remaining; sosSending = false;
+        maybeLive(sentConvs, chosenAll);
+        if (view !== 'form') { toast('SOS not sent to '+remaining.length+' conversation'+(remaining.length>1?'s':'')); return; }
+        btn(sentConvs ? 'SENT '+sentConvs+' — TAP TO RETRY '+remaining.length : 'NOT SENT — TAP TO RETRY', true);
+        stat('Stopped. '+remaining.length+' conversation'+(remaining.length>1?'s':'')+' not reached yet.');
+        return;
+      }
+      stat('Not through to '+remaining.length+' conversation'+(remaining.length>1?'s':'')+' yet — retrying… If this keeps failing, use the text/WhatsApp buttons below: they need phone signal only, not the relay.');
+      const wait = Math.min(10000, 2500 * attempt);
+      const t0 = Date.now();
+      while (Date.now() - t0 < wait) {
+        if (sosStop || view !== 'form') break;
+        await new Promise(r=>setTimeout(r,200));
+      }
     }
   };
   const finalMsg = () => {
@@ -13078,7 +13187,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>6585f737ac55</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>558f8539a107</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
