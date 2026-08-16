@@ -11501,28 +11501,45 @@ function toast(msg){
   setTimeout(()=>t.remove(), 2600);
 }
 
-/* Map links on every position bubble. "Open in maps" is a geo: intent — it
-   hands the coordinate to whatever map app is installed and tells no server
-   anything, which is why it comes first. The other three each send the
-   coordinate to that provider at the moment of tapping. On iPhones geo: is
-   unreliable, which is what the Apple Maps link is for. */
+/* Preferred map. Chosen once (Settings \u2014 which is also the first screen a new
+   user sees), applied to every position bubble and to the map link inside
+   outgoing SOS/location texts. Honest defaults: OSM works everywhere in a
+   browser and sends the coordinate to no advertising company; "Ask each time"
+   uses the Android app chooser (geo:) and touches no server at all, but does
+   not work on iPhones, so outgoing TEXTS fall back to a web link. */
+const MAPPREF = 'courier.map';
+const MAPS = {
+  ask:    { label:'Ask each time (Android)', title:'Uses your installed map app \u2014 nothing sent to any server' },
+  osmaps: { label:'OS Maps',                 title:'Ordnance Survey \u2014 sends the coordinate to OS when tapped' },
+  google: { label:'Google Maps',             title:'Sends the coordinate to Google when tapped' },
+  apple:  { label:'Apple Maps',              title:'For iPhones \u2014 sends the coordinate to Apple when tapped' },
+  osm:    { label:'OpenStreetMap',           title:'Sends the coordinate to OpenStreetMap when tapped' },
+};
+const mapPref = () => MAPS[localStorage.getItem(MAPPREF)] ? localStorage.getItem(MAPPREF) : 'osm';
+function mapUrl(lat, lng, pref){
+  switch (pref || mapPref()) {
+    case 'ask':    return `geo:${lat},${lng}?q=${lat},${lng}`;
+    case 'osmaps': return `https://explore.osmaps.com/?lat=${lat}&lon=${lng}&zoom=17`;
+    case 'google': return `https://www.google.com/maps/search/?api=1&query=${lat}%2C${lng}`;
+    case 'apple':  return `https://maps.apple.com/?ll=${lat},${lng}&q=Pin`;
+    default:       return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`;
+  }
+}
+/* For links embedded in an outgoing TEXT: a geo: URI is dead on an iPhone, so
+   "Ask each time" falls back to a web link the recipient can always open. */
+function mapUrlMsg(lat, lng){
+  const p = mapPref();
+  return mapUrl(lat, lng, p === 'ask' ? 'osm' : p);
+}
 function mapLinks(lat, lng){
   const row = document.createElement('div'); row.className = 'locacts';
-  const add = (label, href, ext, title) => {
-    const a = document.createElement('a');
-    a.href = href; a.textContent = label;
-    if (title) a.title = title;
-    if (ext) { a.target = '_blank'; a.rel = 'noreferrer noopener'; }
-    row.appendChild(a);
-  };
-  add('Open in maps', `geo:${lat},${lng}?q=${lat},${lng}`, false,
-      'Uses your installed map app — nothing sent to any server');
-  add('Google', `https://maps.google.com/?q=${lat},${lng}`, true,
-      'Sends the coordinate to Google when tapped');
-  add('Apple', `https://maps.apple.com/?ll=${lat},${lng}&q=Pin`, true,
-      'For iPhones — sends the coordinate to Apple when tapped');
-  add('OSM', `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`, true,
-      'Sends the coordinate to OpenStreetMap when tapped');
+  const p = mapPref();
+  const a = document.createElement('a');
+  a.href = mapUrl(lat, lng);
+  a.textContent = p === 'ask' ? 'Open in maps' : 'Open in ' + MAPS[p].label;
+  a.title = MAPS[p].title;
+  if (p !== 'ask') { a.target = '_blank'; a.rel = 'noreferrer noopener'; }
+  row.appendChild(a);
   return row;
 }
 
@@ -12677,6 +12694,46 @@ function betterFix(cur, cand){
   return cand.acc <= cur.acc || (cand.ts - cur.ts) > 60000;
 }
 
+/* ---------- SOS text contacts (local only) ----------
+   Names + numbers the SOS and location screens can text. Stored UNSEALED in
+   localStorage on purpose: an SOS must work while the app is locked, and a
+   contact's phone number is about as low-sensitivity as stored data gets.
+   Never sent to the relay; wiped by Burn everything. First entry = default. */
+/* Notification topic for a conversation: same derivation as the relay, from the
+   room id — no key involved. Shown to the human as an ntfy subscribe link. */
+async function notifyTopic(roomId){
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256',
+    new TextEncoder().encode('CRR1/notify:' + roomId)));
+  let h = ''; for (const b of d.subarray(0, 16)) h += b.toString(16).padStart(2, '0');
+  return 'nj-' + h;
+}
+
+const SOSCONTACTS = 'courier.soscontacts';
+function sosContacts(){
+  try { const a = JSON.parse(localStorage.getItem(SOSCONTACTS) || '[]');
+        return Array.isArray(a) ? a.filter(c => c && typeof c.p === 'string' && c.p) : []; }
+  catch { return []; }
+}
+function saveSosContacts(a){ localStorage.setItem(SOSCONTACTS, JSON.stringify(a)); }
+/* The phone chooser both screens share: a select of saved contacts (default first)
+   plus a "Type a number" option that reveals the manual input. */
+function phonePickHTML(){
+  const cs = sosContacts();
+  if (!cs.length) return `<input class="inp" id="num" type="tel" inputmode="tel" autocomplete="off"
+        placeholder="Phone number, e.g. 07700 900312">
+      <p class="note">Tip: save numbers once in Settings \u2192 SOS text contacts and they appear here by name.</p>`;
+  return `<select class="inp" id="numsel">
+        ${cs.map((c,i)=>`<option value="${esc(c.p)}"${i===0?' selected':''}>${esc(c.n||c.p)}</option>`).join('')}
+        <option value="">Type a number\u2026</option>
+      </select>
+      <input class="inp hide" id="num" type="tel" inputmode="tel" autocomplete="off"
+        placeholder="Phone number, e.g. 07700 900312" style="margin-top:.5rem">`;
+}
+function wireNumPick(){
+  const sel = $('#numsel'); if (!sel) return;
+  sel.onchange = () => { $('#num').classList.toggle('hide', !!sel.value); };
+}
+
 async function renderSOS(){
   view='form'; hideFab();
   chrome({ back:true, gear:false, title:'SOS' });
@@ -12714,23 +12771,32 @@ async function renderSOS(){
     </div>
     <div class="card">
       <span class="lb" for="num">Also text or message a phone</span>
-      <input class="inp" id="num" type="tel" inputmode="tel" autocomplete="off"
-        placeholder="Phone number, e.g. 07700 900312">
+      ${phonePickHTML()}
     </div>
     <button class="bigred" id="fire" disabled>SEND SOS</button>
     <div class="note" id="sosstat" style="text-align:center;margin:.35rem 0 0"></div>
     <div class="acts" style="margin-top:0">
       <button class="btn sec" id="smsb" disabled>Text it (SMS)</button>
-      <button class="btn sec" id="wa" disabled>WhatsApp</button>
-      <button class="btn sec" id="share" disabled>Other app…</button>
     </div>
+    <details style="margin:.4rem 0 0">
+      <summary class="note" style="cursor:pointer">More ways to send</summary>
+      <div class="acts" style="margin-top:.4rem">
+        <button class="btn sec" id="wa" disabled>WhatsApp</button>
+        <button class="btn sec" id="share" disabled>Other app…</button>
+      </div>
+    </details>
     <div class="warnbox"><strong>This is not an emergency beacon.</strong> SEND SOS alerts your
     Nightjar conversations. The buttons below also open a text or another app with the wording
     ready — you still tap send there, and it needs phone signal. In a real emergency dial 999 or 112. Where there is no coverage,
     use a satellite messenger.</div>
   </div>`;
 
-  const numbers = () => $('#num').value.replace(/[^0-9+]/g,'');
+  wireNumPick();
+  const numbers = () => {
+    const sel = $('#numsel');
+    const v = (sel && sel.value) ? sel.value : ($('#num') ? $('#num').value : '');
+    return v.replace(/[^0-9+]/g,'');
+  };
   const why = () => $('#why').value.trim().slice(0,100);
   document.querySelectorAll('.chip').forEach(ch => ch.onclick = () => { $('#why').value = ch.dataset.w; });
 
@@ -12739,10 +12805,11 @@ async function renderSOS(){
      from the best fix at the moment of the tap. */
   let here = null, staleMins = 0;
   const paintFix = () => {
-    if (!here) return;
+    const box = $('#fixbox');
+    if (!box || !here) return;
     const gr = toGridRef(here.lat, here.lng);
     const poor = here.acc > 50;
-    $('#fixbox').innerHTML = `
+    box.innerHTML = `
       ${staleMins?`<div class="acc poor">LAST KNOWN position \u2014 ${staleMins} min old, not current</div>`:''}
       ${gr?`<div class="gridref">${gr}</div>`:''}
       <div class="fixbig">${here.lat.toFixed(5)}, ${here.lng.toFixed(5)}</div>
@@ -12897,8 +12964,9 @@ async function renderSOS(){
       + (staleMins ? `LAST KNOWN position, ${staleMins} min old:\n` : '')
       + (gr ? `Grid ${gr}\n` : '')
       + `${here.lat.toFixed(5)}, ${here.lng.toFixed(5)} (\u00b1${here.acc} m)\n`
-      + `https://www.openstreetmap.org/?mlat=${here.lat}&mlon=${here.lng}#map=16/${here.lat}/${here.lng}`;
+      + mapUrlMsg(here.lat, here.lng);
   };
+  { const dc = sosContacts()[0]; if (dc && dc.n) $('#smsb').textContent = 'Text ' + dc.n; }
   $('#smsb').onclick = async () => {
     void alertConvs();
     location.href = 'sms:' + numbers() + '?body=' + encodeURIComponent(finalMsg());
@@ -12928,8 +12996,7 @@ async function renderShareLoc(){
     </div>
     <div class="card">
       <span class="lb" for="num">Send to a phone</span>
-      <input class="inp" id="num" type="tel" inputmode="tel" autocomplete="off"
-        placeholder="Phone number (or pick the person in your messaging app)">
+      ${phonePickHTML()}
       <div class="acts">
         <button class="btn" id="sms" disabled>Text it (SMS)</button>
         <button class="btn sec" id="wa" disabled>WhatsApp</button>
@@ -12941,39 +13008,82 @@ async function renderShareLoc(){
       message that anyone can receive.</p>
     </div>
   </div>`;
-  const numbers = () => $('#num').value.replace(/[^0-9+]/g,'');
-  let msg = '';
-  try {
-    const here = await fix({ timeout:25000, maximumAge:0 });
+  wireNumPick();
+  const numbers = () => {
+    const sel = $('#numsel');
+    const v = (sel && sel.value) ? sel.value : ($('#num') ? $('#num').value : '');
+    return v.replace(/[^0-9+]/g,'');
+  };
+  /* Position never gates the screen: the buttons are live immediately and the
+     message is built at tap time from the best fix so far. A watch keeps
+     sharpening it; a hard GPS error falls back to a network fix, then a
+     clearly-labelled last-known one, at once instead of after a long wait. */
+  let here = null, staleMins = 0;
+  const paintFix = () => {
+    const box = $('#fixbox');
+    if (!box || !here) return;
     const gr = toGridRef(here.lat, here.lng);
     const poor = here.acc > 50;
-    $('#fixbox').innerHTML = `
+    box.innerHTML = `
+      ${staleMins?`<div class="acc poor">LAST KNOWN position \u2014 ${staleMins} min old, not current</div>`:''}
       ${gr?`<div class="gridref">${gr}</div>`:''}
       <div class="fixbig">${here.lat.toFixed(5)}, ${here.lng.toFixed(5)}</div>
-      <div class="acc${poor?' poor':''}">\u00b1${here.acc} m${poor?' — poor fix, wait for better if you can':''}</div>`;
-    msg = `${me} \u2014 my location\n`
-        + (gr ? `Grid ${gr}\n` : '')
-        + `${here.lat.toFixed(5)}, ${here.lng.toFixed(5)} (\u00b1${here.acc} m)\n`
-        + `https://www.openstreetmap.org/?mlat=${here.lat}&mlon=${here.lng}#map=16/${here.lat}/${here.lng}`;
-    for (const id of ['sms','wa','share']) $('#'+id).disabled = false;
-  } catch (e) {
-    const reason = e && e.code === 1
-      ? 'Location permission is blocked \u2014 check the padlock icon in the address bar, then the browser\u2019s own Location permission in Android settings.'
-      : e && e.code === 3
-      ? 'Timed out \u2014 GPS-only phones can need open sky and 30+ seconds from cold.'
-      : 'Position unavailable \u2014 no fix could be made here.';
-    $('#fixbox').innerHTML = `<p class="note" style="margin-top:0;color:var(--danger)">${reason}</p>`;
-    return;
+      <div class="acc${poor?' poor':''}">\u00b1${here.acc} m${poor?' \u2014 poor fix, still sharpening':''}</div>`;
+  };
+  for (const id of ['sms','wa','share']) $('#'+id).disabled = false;
+  const finalMsg = () => {
+    const gr = toGridRef(here.lat, here.lng);
+    return `${me} \u2014 my location\n`
+      + (staleMins ? `LAST KNOWN position, ${staleMins} min old:\n` : '')
+      + (gr ? `Grid ${gr}\n` : '')
+      + `${here.lat.toFixed(5)}, ${here.lng.toFixed(5)} (\u00b1${here.acc} m)\n`
+      + mapUrlMsg(here.lat, here.lng);
+  };
+  const ready = () => { if (here) return true; toast('No position yet \u2014 hold on, still getting a fix'); return false; };
+  let fbRan = false;
+  const fallbackFix = async () => {
+    if (fbRan || here || view !== 'form') return;
+    fbRan = true;
+    try {
+      const f = await fix({ timeout:8000, maximumAge:0 });
+      if (betterFix(here, f)) { here = f; staleMins = 0; paintFix(); }
+    } catch (e1) {
+      try {
+        const f = await fix({ timeout:5000, maximumAge: 30*60000 });
+        if (!here) { here = f; staleMins = Math.max(1, Math.round((Date.now() - f.ts)/60000)); paintFix(); }
+      } catch (e) {
+        if (here) return;
+        const reason = e && e.code === 1
+          ? 'Location permission is blocked \u2014 check the padlock icon in the address bar, then the browser\u2019s own Location permission in Android settings.'
+          : e && e.code === 3
+          ? 'Timed out \u2014 GPS-only phones can need open sky and 30+ seconds from cold.'
+          : 'Position unavailable \u2014 no fix could be made here.';
+        const box = $('#fixbox');
+        if (box) box.innerHTML = `<p class="note" style="margin-top:0;color:var(--danger)">${reason} The buttons stay live \u2014 they will warn you until a position arrives.</p>`;
+      }
+    }
+  };
+  if (navigator.geolocation) {
+    stopSOSWatch();
+    sosWatchId = navigator.geolocation.watchPosition((p) => {
+      const cand = { lat:+p.coords.latitude.toFixed(6), lng:+p.coords.longitude.toFixed(6),
+                     acc:Math.round(p.coords.accuracy), ts:p.timestamp || Date.now() };
+      if (betterFix(here, cand)) { here = cand; myFix = cand; staleMins = 0; paintFix(); }
+    }, () => { void fallbackFix(); }, { enableHighAccuracy:true, maximumAge:0 });
   }
-  $('#sms').onclick = () => { location.href = 'sms:' + numbers() + '?body=' + encodeURIComponent(msg); };
+  setTimeout(fallbackFix, 12000);
+  { const dc = sosContacts()[0]; if (dc && dc.n) $('#sms').textContent = 'Text ' + dc.n; }
+  $('#sms').onclick = () => { if (!ready()) return; location.href = 'sms:' + numbers() + '?body=' + encodeURIComponent(finalMsg()); };
   $('#wa').onclick = () => {
+    if (!ready()) return;
     const n = numbers().replace(/^0/,'44').replace(/^\+/,'');
-    location.href = n ? `https://wa.me/${n}?text=${encodeURIComponent(msg)}`
-                      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    location.href = n ? `https://wa.me/${n}?text=${encodeURIComponent(finalMsg())}`
+                      : `https://wa.me/?text=${encodeURIComponent(finalMsg())}`;
   };
   $('#share').onclick = () => {
-    if (navigator.share) { navigator.share({ text: msg }).catch(()=>{}); }
-    else { navigator.clipboard.writeText(msg).then(()=>toast('Copied — paste it into any app')); }
+    if (!ready()) return;
+    if (navigator.share) { navigator.share({ text: finalMsg() }).catch(()=>{}); }
+    else { navigator.clipboard.writeText(finalMsg()).then(()=>toast('Copied — paste it into any app')); }
   };
 }
 
@@ -13001,6 +13111,22 @@ function renderInfo(){
         <button class="btn" id="qrp">QR code</button>
       </div>
       <div class="qrwrap hide" id="qrbox">${qrSvg(c.key)}</div>
+    </div>
+    <div class="card">
+      <label class="lb">Notifications</label>
+      <p class="note" style="margin-top:0">Get a ping on this device when a message arrives here, via the
+      free <strong>ntfy</strong> app \u2014 no Google involved. The ping says only \u201cnew message\u201d:
+      never the content, never the sender.</p>
+      <details>
+        <summary class="note" style="cursor:pointer">Set it up (once per device)</summary>
+        <p class="note">1. Install <strong>ntfy</strong> \u2014 Play Store, F-Droid, or the App Store.<br>
+        2. Open this link and tap <strong>Subscribe</strong>:</p>
+        <p class="note" id="ntlink" style="word-break:break-all">working it out\u2026</p>
+        <p class="note">Treat the link like the conversation itself: anyone holding it can see
+        <em>when</em> messages fly here, though never what is in them. iPhones need the standard
+        ntfy.sh service for instant delivery. If you rotate the key below, the new conversation
+        gets a new link \u2014 subscribe again from there.</p>
+      </details>
     </div>
     <div class="card">
       <label class="lb">Rotate the key</label>
@@ -13036,6 +13162,10 @@ function renderInfo(){
     toast('Messages cleared');
     renderInfo();
   };
+  notifyTopic(c.id).then(t => {
+    const el = $('#ntlink'); if (!el) return;
+    el.innerHTML = `<a href="https://ntfy.sh/${t}" target="_blank" rel="noopener">ntfy.sh/${t}</a>`;
+  });
   $('#cp').onclick = () => navigator.clipboard.writeText(c.key).then(()=>toast('Key copied'));
   $('#qrp').onclick = () => {
     const box = $('#qrbox');
@@ -13149,6 +13279,21 @@ function renderSettings(){
       the data off a lost or seized device — so don't rely on it for real protection.</p>
     </div>
     <div class="card">
+      <label class="lb">Maps</label>
+      <p class="note" style="margin-top:0">Which map opens when you tap a shared position \u2014 also used
+      for the map link inside the texts you send.</p>
+      <select class="inp" id="mapsel">
+        <option value="osm">OpenStreetMap</option>
+        <option value="osmaps">OS Maps</option>
+        <option value="google">Google Maps</option>
+        <option value="apple">Apple Maps</option>
+        <option value="ask">Ask each time (Android)</option>
+      </select>
+      <p class="note">Google and Apple learn any coordinate you open with them; OpenStreetMap and
+      \u201cAsk each time\u201d are the private choices. \u201cAsk each time\u201d doesn\u2019t work on
+      iPhones, so texts you send fall back to a web link.</p>
+    </div>
+    <div class="card">
       <label class="lb">Photos</label>
       <label class="pick" style="margin-top:.2rem">
         <input type="checkbox" id="striploc"> 
@@ -13157,6 +13302,16 @@ function renderSettings(){
       <p class="note">Strips the hidden GPS tag (and time and device) a camera adds, so a photo you
       send can't give away where it was taken if it's later forwarded on. Slightly re-compresses the
       image. <strong>Photos only</strong> — videos still carry their metadata.</p>
+    </div>
+    <div class="card">
+      <label class="lb">SOS text contacts</label>
+      <p class="note" style="margin-top:0">Numbers the SOS and location screens can text \u2014 for example a
+      deer manager or landowner for this week's ground. Add before a trip, remove after. Saved on this
+      device only, never sent anywhere; the first in the list is the default.</p>
+      <div id="scl"></div>
+      <input class="inp" id="scn" placeholder="Name, e.g. Angus (deer manager)" autocomplete="off">
+      <input class="inp" id="scp" type="tel" inputmode="tel" placeholder="Phone number" autocomplete="off" style="margin-top:.5rem">
+      <div class="acts"><button class="btn sec" id="scadd">Add contact</button></div>
     </div>
     <div class="card">
       <h2 class="hd">Key backup</h2>
@@ -13187,7 +13342,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>558f8539a107</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>5235ae0f8e2a</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -13268,6 +13423,34 @@ function renderSettings(){
     }
   };
   $('#striploc').checked = stripLoc;
+  $('#mapsel').value = mapPref();
+  $('#mapsel').onchange = () => { localStorage.setItem(MAPPREF, $('#mapsel').value); toast('Map choice saved'); };
+  /* SOS text contacts: list with Remove / Default, plus add row. */
+  const paintSC = () => {
+    const cs = sosContacts();
+    $('#scl').innerHTML = cs.length ? cs.map((c,i)=>`
+      <div style="display:flex;align-items:center;gap:.5rem;padding:.35rem 0;border-bottom:1px solid var(--line)">
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(c.n||c.p)}${c.n?' \u2014 '+esc(c.p):''}${i===0?' <span class="note">(default)</span>':''}</span>
+        ${i>0?`<button class="btn sec" data-scdef="${i}">Default</button>`:''}
+        <button class="btn sec" data-scrm="${i}">Remove</button>
+      </div>`).join('') : '';
+    document.querySelectorAll('[data-scrm]').forEach(b => b.onclick = () => {
+      const cs2 = sosContacts(); cs2.splice(+b.dataset.scrm, 1); saveSosContacts(cs2); paintSC();
+    });
+    document.querySelectorAll('[data-scdef]').forEach(b => b.onclick = () => {
+      const cs2 = sosContacts(); const [c2] = cs2.splice(+b.dataset.scdef, 1);
+      cs2.unshift(c2); saveSosContacts(cs2); paintSC();
+    });
+  };
+  paintSC();
+  $('#scadd').onclick = () => {
+    const n = $('#scn').value.trim();
+    const p = $('#scp').value.replace(/[^0-9+]/g,'');
+    if (!p) return toast('Enter a phone number');
+    const cs = sosContacts(); cs.push({ n, p }); saveSosContacts(cs);
+    $('#scn').value = ''; $('#scp').value = '';
+    paintSC(); toast('Saved \u2014 it will show on the SOS and location screens');
+  };
   $('#striploc').onchange = () => {
     stripLoc = $('#striploc').checked;
     localStorage.setItem(LS.striploc, String(stripLoc));
