@@ -11430,7 +11430,17 @@ function renderLock(){
       autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
       placeholder="${lockLabel(true)}" style="margin-top:.6rem${numeric?';-webkit-text-security:disc':''}">
     <div class="acts"><button class="btn" id="go">Unlock</button></div>
-  </div></div>`;
+  </div>${(sosContacts().length || sosKeyRec()) ? `
+  <div class="card" style="margin-top:.8rem">
+    <button class="bigred" id="lsos" style="position:relative;overflow:hidden;width:100%">
+      <span id="lsosfill" style="position:absolute;top:0;left:0;bottom:0;width:0%;background:rgba(255,255,255,.28)"></span>
+      <span id="lsoslab" style="position:relative">SOS \u2014 hold 3 seconds</span>
+    </button>
+    <div class="note" id="lsosstat" style="margin:.45rem 0 0"></div>
+    <p class="note" style="margin:.35rem 0 0">${sosKeyRec() ? 'Alerts your group in Nightjar' : ''}${sosKeyRec() && sosContacts().length ? ', and opens' : (sosContacts().length ? 'Opens' : '')}${sosContacts().length ? ' a text to your SMS contact for you to send' : ''}.
+    Your position is included. Works without unlocking \u2014 this reaches your people, not 999.</p>
+  </div>` : ''}</div>`;
+  wireLockSOS();
   const go = async () => {
     const p = $('#pin').value;
     if (!p) return;
@@ -11444,6 +11454,98 @@ function renderLock(){
   $('#go').onclick = go;
   $('#pin').onkeydown = (e) => { if (e.key==='Enter') go(); };
   $('#pin').focus();
+}
+/* Lock-screen SOS: press and hold 3 seconds, no unlock needed. Uses ONLY
+   unsealed data on purpose \u2014 the saved SOS contacts, the display name, and
+   GPS \u2014 so it works while every key stays sealed. The hold itself is the
+   pocket-fire guard (single-step, unlike Burn's arm-then-hold: an emergency
+   wants speed, destruction wants friction). GPS starts at finger-down for a
+   head start; if no fix by fire time the text says so honestly instead of
+   waiting. A web page cannot send an SMS itself \u2014 this opens the composer
+   filled in, and the final tap is the user's. */
+function wireLockSOS(){
+  const cs = sosContacts();
+  if (!cs.length && !sosKeyRec()) return;
+  const btn = $('#lsos'), fill = $('#lsosfill'), lab = $('#lsoslab');
+  if (!btn) return;
+  const dc = cs[0] || null, HOLD = 3000;
+  let t0 = 0, raf = 0, fired = false, watchId = null, best = myFix;
+  const setFill = f => { fill.style.width = (Math.max(0, Math.min(1, f)) * 100).toFixed(1) + '%'; };
+  const startGPS = () => {
+    if (watchId != null || !navigator.geolocation) return;
+    try {
+      watchId = navigator.geolocation.watchPosition(p => {
+        const cand = { lat:+p.coords.latitude.toFixed(6), lng:+p.coords.longitude.toFixed(6),
+                       acc:Math.round(p.coords.accuracy), ts:p.timestamp || Date.now() };
+        if (betterFix(best, cand)) { best = cand; myFix = cand; }
+      }, () => {}, { enableHighAccuracy:true, maximumAge:0 });
+    } catch {}
+  };
+  const body = () => {
+    let t = 'SOS \u2014 ' + (me ? me + ' needs help.' : 'I need help.');
+    if (best) {
+      const gr = toGridRef(best.lat, best.lng);
+      t += '\n' + (gr ? 'Grid ' + gr + '\n' : '')
+        + best.lat.toFixed(5) + ', ' + best.lng.toFixed(5) + ' (\u00b1' + best.acc + ' m)\n'
+        + mapUrlMsg(best.lat, best.lng);
+    } else {
+      t += '\nGPS still searching \u2014 no position yet.';
+    }
+    return t;
+  };
+  /* Fire order matters: raise the in-app alert FIRST (it sends by itself and
+     needs the page alive), then open the SMS composer, which hands the phone to
+     another app. The in-app send is capped so a dead relay can never stop the
+     text going out. Sent ephemerally: no local record is written, because with
+     the vault locked a record would be stored unsealed. */
+  const alertGroup = async () => {
+    const rec = sosKeyRec(); if (!rec) return null;
+    const st = $('#lsosstat');
+    if (st) st.textContent = 'Alerting your group\u2026';
+    try {
+      const c = { id:rec.id, name:rec.name, key:rec.key, kind:'group' };
+      connect(c);
+      const t0 = Date.now();
+      while (Date.now() - t0 < 4000) {                 // wait for a socket, capped
+        const sk = socks.get(c.id);
+        if (sk && sk.ws && sk.ws.readyState === 1) break;
+        await new Promise(r => setTimeout(r, 150));
+      }
+      const payload = JSON.stringify({ ...(best || { lat:0, lng:0, acc:0, none:true }) });
+      const data = new TextEncoder().encode(payload);
+      const ok = await transmit(c, bytesReader(data),
+        { k:'sos', s:data.length, f:me, ts:Date.now(), mid:crypto.randomUUID() },
+        null, { ephemeral:true, quiet:true }).catch(() => false);
+      if (st) st.textContent = ok ? 'Group alerted \u2713' : 'Could not reach the relay \u2014 send the text';
+      return ok;
+    } catch { if (st) st.textContent = 'Could not reach the relay \u2014 send the text'; return false; }
+  };
+  const fire = async () => {
+    if (fired) return; fired = true;
+    if (raf) cancelAnimationFrame(raf); raf = 0; setFill(1);
+    try { navigator.vibrate && navigator.vibrate(50); } catch {}
+    lab.textContent = 'Sending\u2026';
+    if (sosKeyRec()) await Promise.race([alertGroup(), new Promise(r => setTimeout(r, 6000))]);
+    if (cs.length) {
+      lab.textContent = 'Opening your texts\u2026';
+      location.href = 'sms:' + dc.p.replace(/[^0-9+]/g,'') + '?body=' + encodeURIComponent(body());
+    }
+    setTimeout(() => { fired = false; setFill(0); lab.textContent = 'SOS \u2014 hold 3 seconds'; }, 4000);
+  };
+  const tick = () => {
+    if (!t0 || fired) return;
+    const f = (performance.now() - t0) / HOLD;
+    if (f >= 1) return void fire();
+    setFill(f); raf = requestAnimationFrame(tick);
+  };
+  const abort = () => { if (fired) return; if (raf) cancelAnimationFrame(raf); raf = 0; t0 = 0; setFill(0); };
+  btn.addEventListener('contextmenu', e => e.preventDefault());
+  btn.addEventListener('pointerdown', e => {
+    e.preventDefault(); if (fired || t0) return;
+    startGPS();                                  // head start while the hold runs
+    t0 = performance.now(); raf = requestAnimationFrame(tick);
+  });
+  ['pointerup','pointercancel','pointerleave'].forEach(ev => btn.addEventListener(ev, abort));
 }
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const bytes = (n) => n<1024 ? n+' B' : n<1048576 ? (n/1024).toFixed(0)+' kB'
@@ -12427,7 +12529,7 @@ async function renderCreate(kind){
   chrome({ back:true, gear:false, title: kind==='group' ? 'New group' : 'New contact' });
   $('#main').innerHTML = `<div class="pad"><div class="card">
     <label class="lb" for="nm">${kind==='group'?'Group name':'Their name'}</label>
-    <input class="inp" id="nm" autocomplete="off" placeholder="${kind==='group'?'e.g. Family':'e.g. Sam'}">
+    <input class="inp" id="nm" autocomplete="off" placeholder="${kind==='group'?'Group name':'Their name'}">
     <label class="lb" style="margin-top:1rem">Key</label>
     <div class="qrwrap">${qrSvg(toBase64(key))}</div>
     <p class="note" style="text-align:center;margin-top:.2rem">Have them scan this. The key never leaves
@@ -12708,6 +12810,32 @@ async function notifyTopic(roomId){
   return 'nj-' + h;
 }
 
+/* ---------- SOS-only key ----------
+   A conversation used for nothing but SOS. Its key is kept UNSEALED, exactly
+   like the SOS phone numbers, so a locked phone can still raise the alarm.
+   The trade is stated in Settings and worth naming here: anyone who takes the
+   phone can read this one conversation \u2014 which only ever carries "help"
+   and a position. Every real conversation stays sealed behind the lock. */
+const SOSKEY = 'courier.soskey';
+function sosKeyRec(){
+  try { const r = JSON.parse(localStorage.getItem(SOSKEY) || 'null');
+        return (r && r.id && r.key) ? r : null; }
+  catch { return null; }
+}
+async function makeSosKey(){
+  const raw = randomBytes(32), key = toBase64(raw);
+  const rec = { id: await roomId(raw), key, name: 'SOS only' };
+  localStorage.setItem(SOSKEY, JSON.stringify(rec));
+  /* Also list it as an ordinary conversation so it shows in the app and
+     receives normally when unlocked. Kind 'group' so senders are named. */
+  if (!convs.some(c => c.id === rec.id)) {
+    convs.push({ id:rec.id, name:rec.name, kind:'group', key:rec.key,
+                 fp: await fingerprint(raw), seq:0 });
+    saveConvs();
+  }
+  return rec;
+}
+
 const SOSCONTACTS = 'courier.soscontacts';
 function sosContacts(){
   try { const a = JSON.parse(localStorage.getItem(SOSCONTACTS) || '[]');
@@ -12958,7 +13086,6 @@ async function renderSOS(){
       + `${here.lat.toFixed(5)}, ${here.lng.toFixed(5)} (\u00b1${here.acc} m)\n`
       + mapUrlMsg(here.lat, here.lng);
   };
-  { const dc = sosContacts()[0]; if (dc && dc.n) $('#smsb').textContent = 'Text ' + dc.n; }
   $('#smsb').onclick = async () => {
     void alertConvs();
     location.href = 'sms:' + numbers() + '?body=' + encodeURIComponent(finalMsg());
@@ -13064,7 +13191,6 @@ async function renderShareLoc(){
     }, () => { void fallbackFix(); }, { enableHighAccuracy:true, maximumAge:0 });
   }
   setTimeout(fallbackFix, 12000);
-  { const dc = sosContacts()[0]; if (dc && dc.n) $('#sms').textContent = 'Text ' + dc.n; }
   $('#sms').onclick = () => { if (!ready()) return; location.href = 'sms:' + numbers() + '?body=' + encodeURIComponent(finalMsg()); };
   $('#wa').onclick = () => {
     if (!ready()) return;
@@ -13316,9 +13442,16 @@ function renderSettings(){
       deer manager or landowner for this week's ground. Add before a trip, remove after. Saved on this
       device only, never sent anywhere; the first in the list is the default.</p>
       <div id="scl"></div>
-      <input class="inp" id="scn" placeholder="Name, e.g. Angus (deer manager)" autocomplete="off">
+      <input class="inp" id="scn" placeholder="Label, e.g. deer manager" autocomplete="off">
       <input class="inp" id="scp" type="tel" inputmode="tel" placeholder="Phone number" autocomplete="off" style="margin-top:.5rem">
       <div class="acts"><button class="btn sec" id="scadd">Add contact</button></div>
+    </div>
+    <div class="card">
+      <label class="lb">SOS-only key</label>
+      <p class="note" style="margin-top:0">A separate conversation used for nothing but SOS. Its key is kept
+      <strong>outside the app lock</strong>, so the SOS button on the lock screen can alert your group in
+      Nightjar without you unlocking first.</p>
+      <div id="skbox"></div>
     </div>
     <div class="card">
       <h2 class="hd">Key backup</h2>
@@ -13349,7 +13482,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>db06d5fd52de</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>677d3a101e29</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -13450,6 +13583,40 @@ function renderSettings(){
     });
   };
   paintSC();
+  /* SOS-only key: create / show / share / remove. The warning is on-screen,
+     not buried in docs — an unsealed key is a real trade and the user should
+     see it every time they look at this card. */
+  const paintSK = () => {
+    const rec = sosKeyRec();
+    $('#skbox').innerHTML = rec ? `
+      <div class="fp" style="font-size:.8rem;word-break:break-all">${esc(rec.key)}</div>
+      <div class="qrwrap hide" id="skqr">${qrSvg(rec.key)}</div>
+      <div class="acts">
+        <button class="btn sec" id="skqrb">Show QR code</button>
+        <button class="btn sec" id="skcopy">Copy key</button>
+        <button class="btn sec" id="skdel">Remove</button>
+      </div>
+      <p class="note" style="border-left:3px solid var(--danger);padding-left:.6rem">
+      <strong>The trade:</strong> anyone who takes this phone can read this one conversation.
+      It only ever carries \u201chelp\u201d and a position — your real conversations stay sealed.</p>
+      <p class="note">Everyone else adds this key once as a <strong>group</strong>, then subscribes to its
+      notification topic from its Details screen.</p>`
+    : `<div class="acts"><button class="btn sec" id="skmake">Create an SOS-only key</button></div>`;
+    const mk = $('#skmake');
+    if (mk) mk.onclick = async () => { await makeSosKey(); paintSK(); connectAll();
+      toast('Created — share it with your group'); };
+    const qb = $('#skqrb');
+    if (qb) qb.onclick = () => $('#skqr').classList.toggle('hide');
+    const cp = $('#skcopy');
+    if (cp) cp.onclick = () => navigator.clipboard.writeText(sosKeyRec().key)
+      .then(()=>toast('SOS-only key copied'));
+    const dl = $('#skdel');
+    if (dl) dl.onclick = () => {
+      if (!confirm('Remove the SOS-only key? The lock-screen SOS will go back to text only.')) return;
+      localStorage.removeItem(SOSKEY); paintSK(); toast('Removed');
+    };
+  };
+  paintSK();
   $('#scadd').onclick = () => {
     const n = $('#scn').value.trim();
     const p = $('#scp').value.replace(/[^0-9+]/g,'');
