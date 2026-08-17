@@ -12757,18 +12757,11 @@ async function renderSOS(){
       <p class="note">Live sharing keeps the screen awake and needs the app open \u2014 it turns
       "where I was" into "follow me in". Untick if you'd rather send the fix only.</p>
     </div>
-    <div class="card">
-      <span class="lb" for="why">What's wrong? (optional)</span>
-      <div class="chips">
-        <button class="chip" data-w="Injured">Injured</button>
-        <button class="chip" data-w="Vehicle stuck">Vehicle stuck</button>
-        <button class="chip" data-w="Need help, not urgent">Need help, not urgent</button>
-      </div>
+    <details style="margin:.2rem 0 .4rem">
+      <summary class="note" style="cursor:pointer">Add a one-line note (optional)</summary>
       <input class="inp" id="why" maxlength="100" autocomplete="off"
-        placeholder="One line, e.g. fallen, leg injured">
-      <p class="note">Optional \u2014 SEND SOS works with or without it. Kept short so a text
-      stays one message.</p>
-    </div>
+        placeholder="e.g. fallen, leg injured" style="margin-top:.4rem">
+    </details>
     <div class="card">
       <span class="lb" for="num">Also text or message a phone</span>
       ${phonePickHTML()}
@@ -12798,7 +12791,6 @@ async function renderSOS(){
     return v.replace(/[^0-9+]/g,'');
   };
   const why = () => $('#why').value.trim().slice(0,100);
-  document.querySelectorAll('.chip').forEach(ch => ch.onclick = () => { $('#why').value = ch.dataset.w; });
 
   /* Position never gates sending: every button is live immediately, a GPS watch
      keeps sharpening the fix while this screen is open, and the message is built
@@ -13357,7 +13349,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>00039fad7299</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>db06d5fd52de</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
