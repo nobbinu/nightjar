@@ -12224,8 +12224,20 @@ async function connect(c){
   const base = relay.replace(/^http/,'ws').replace(/\/+$/,'') + '/r/' + c.id;
   const ws = new WebSocket(base + (relayToken ? '?t=' + encodeURIComponent(relayToken) : ''));
   ws.binaryType = 'arraybuffer'; s.ws = ws;
-  ws.onopen = () => { s.tries = 0; ws.send(JSON.stringify({t:'sync', since:c.seq||0})); status(); };
-  ws.onclose = () => { s.ws = null; status(); setTimeout(()=>connect(c), Math.min(30000, 1000*2**s.tries++)); };
+  ws.onopen = () => {
+    s.tries = 0; ws.send(JSON.stringify({t:'sync', since:c.seq||0})); status();
+    /* Heartbeat: lets the relay tell living sockets from ghosts, so the online
+       dots mean "alive in the last minute", not "socket object still exists".
+       Answered at Cloudflare's edge without waking the relay. */
+    clearInterval(s.hb);
+    s.hb = setInterval(() => { try { ws.send('hb'); } catch {} }, 25000);
+  };
+  ws.onclose = () => {
+    s.ws = null;
+    clearInterval(s.hb); s.hb = null;
+    s.peers = 0; status();                  // our link is down: show nobody, not a stale count
+    setTimeout(()=>connect(c), Math.min(30000, 1000*2**s.tries++));
+  };
   ws.onerror = () => {};
   ws.onmessage = (ev) => {
     if (typeof ev.data === 'string') {
@@ -13482,7 +13494,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>677d3a101e29</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>8948fb4ce173</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
