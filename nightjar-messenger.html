@@ -13101,6 +13101,14 @@ function renderInfo(){
         ${s&&s.peers?s.peers+' online':'nobody online'}</p>
     </div>
     <div class="card">
+      <label class="lb">Show as</label>
+      <p class="note" style="margin-top:0">A <strong>group</strong> labels every incoming message with the
+      sender's name in their own colour. A <strong>contact</strong> doesn't, since there is only one other
+      person. This is a display choice on this device only \u2014 it changes nothing about the key, and the
+      other people are unaffected.</p>
+      <div class="acts"><button class="btn sec" id="kindsw">Switch to ${c.kind==='group'?'contact':'group'}</button></div>
+    </div>
+    <div class="card">
       <label class="lb">Safety number</label>
       <div class="fp">${esc(c.fp)}</div>
       <p class="note" style="margin-top:0">Read it aloud. If it doesn't match on their device, you are not
@@ -13161,6 +13169,13 @@ function renderInfo(){
     saveConvs();
     toast('Messages cleared');
     renderInfo();
+  };
+  $('#kindsw').onclick = () => {
+    c.kind = c.kind === 'group' ? 'contact' : 'group';
+    saveConvs();
+    if (openId === c.id) senderColours.delete(c.id);   // re-assign colours cleanly next render
+    renderInfo();
+    toast(c.kind === 'group' ? 'Now shown as a group \u2014 senders are named' : 'Now shown as a contact');
   };
   notifyTopic(c.id).then(t => {
     const el = $('#ntlink'); if (!el) return;
@@ -13342,7 +13357,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>5235ae0f8e2a</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>00039fad7299</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -13562,20 +13577,29 @@ $('#send').onclick = async () => {
   await sendText(c, t);
 };
 $('#attach').onclick = () => {
+  /* Two-level sheet: the three everyday actions up front, the rare ones behind
+     More. Inside a chat, sealed IS the norm, so it isn't labelled; the one
+     option that leaves Nightjar says so explicitly instead. No SOS entry here
+     on purpose \u2014 the red SOS pill in the top bar is the one path, and a
+     duplicate in a menu is clutter, not safety. */
   const sheet = document.createElement('div');
   sheet.className = 'sheet';
-  sheet.innerHTML = `<div class="sheet-in">
+  const primary = `<div class="sheet-in">
     <button data-a="file"><span class="ic"><svg viewBox="0 0 24 24"><path d="M14 3v5h5M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/></svg></span>File, photo or video</button>
-    <button data-a="loc"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.3 7-11a7 7 0 10-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/></svg></span>Current location (sealed, in this chat)</button>
-    <button data-a="live"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><path d="M7.8 7.8a6 6 0 000 8.4M16.2 7.8a6 6 0 010 8.4M4.9 4.9a10 10 0 000 14.2M19.1 4.9a10 10 0 010 14.2"/></svg></span>Share live location (sealed, in this chat)</button>
-    <button data-a="shloc"><span class="ic"><svg viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg></span>Location by text or app</button>
+    <button data-a="loc"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.3 7-11a7 7 0 10-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/></svg></span>Current location</button>
+    <button data-a="live"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><path d="M7.8 7.8a6 6 0 000 8.4M16.2 7.8a6 6 0 010 8.4M4.9 4.9a10 10 0 000 14.2M19.1 4.9a10 10 0 010 14.2"/></svg></span>Live location</button>
+    <button data-a="more"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></span>More\u2026</button>
+    <button data-a="x" class="cancel">Cancel</button></div>`;
+  const secondary = `<div class="sheet-in">
+    <button data-a="shloc"><span class="ic"><svg viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg></span>Send location outside Nightjar (text or another app)</button>
     <button data-a="save"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M4 19h16"/></svg></span>Save as a sealed file</button>
     <button data-a="load"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4M4 19h16"/></svg></span>Open a sealed file</button>
-    <button data-a="sos" class="red"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0z"/></svg></span>Send an SOS</button>
     <button data-a="x" class="cancel">Cancel</button></div>`;
+  sheet.innerHTML = primary;
   sheet.onclick = (e) => {
     const b = e.target.closest('[data-a]'); if (!b && e.target !== sheet) return;
     const a = b ? b.dataset.a : 'x';
+    if (a === 'more') { sheet.innerHTML = secondary; return; }
     sheet.remove();
     if (a === 'file') $('#picker').click();
     if (a === 'loc') sendLocation();
@@ -13583,7 +13607,6 @@ $('#attach').onclick = () => {
     if (a === 'shloc') renderShareLoc();
     if (a === 'save') exportSealed();
     if (a === 'load') $('#importer').click();
-    if (a === 'sos') renderSOS();
   };
   document.body.appendChild(sheet);
 };
