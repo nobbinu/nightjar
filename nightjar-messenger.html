@@ -12236,13 +12236,14 @@ async function connect(c){
     s.ws = null;
     clearInterval(s.hb); s.hb = null;
     s.peers = 0; status();                  // our link is down: show nobody, not a stale count
+    if (view==='list') renderList();
     setTimeout(()=>connect(c), Math.min(30000, 1000*2**s.tries++));
   };
   ws.onerror = () => {};
   ws.onmessage = (ev) => {
     if (typeof ev.data === 'string') {
       const m = JSON.parse(ev.data);
-      if (m.t==='presence') { s.peers = Math.max(0, m.n-1); status(); }
+      if (m.t==='presence') { s.peers = Math.max(0, m.n-1); status(); if (view==='list') renderList(); }
       if (m.t==='delivered') s.lastDelivered = m.n;
       return;                                   // frames render as they decrypt
     }
@@ -13494,7 +13495,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>8948fb4ce173</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>48ed9951d9a3</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
