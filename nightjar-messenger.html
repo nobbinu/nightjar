@@ -12311,6 +12311,15 @@ async function receive(c, container){
       liveChanged(c.id);
       return;
     }
+    /* Delivery receipt from another device: update the original bubble's
+       footer, never show the receipt itself. */
+    if (meta.k === 'ack'){
+      let p = null; try { p = JSON.parse(await result.text()); } catch {}
+      if (!p || typeof p.mid !== 'string' || typeof p.dev !== 'string') return;
+      if (p.dev === myTopic()) return;                  // our own receipt echoed on resync
+      applyAck(c, p.mid, p.dev);
+      return;
+    }
     /* Topic announce: record it, never show it. Also re-announce ours (rate
        limited) so a member who restored from backup relearns everyone. */
     if (meta.k === 'ntfy'){
@@ -12342,6 +12351,10 @@ async function receive(c, container){
               : 'An unreadable message arrived.' };
   }
   await put(rec);
+  /* Delivery receipt: tell the sender this device has unsealed it. Fires once
+     per message (replays are deduped before reaching here), rides the silent
+     control channel, and says nothing about whether a human has read it. */
+  if (rec.dir === 'in' && rec.kind !== 'bad' && meta && meta.mid) sendAck(c, meta.mid);
   c.last = rec.kind==='text' ? rec.text
          : rec.kind==='bad' ? 'Unreadable message'
          : rec.kind==='sos' ? 'SOS — needs help'
@@ -12673,8 +12686,8 @@ function bubbleEl(m, prev){
       n.textContent = 'No position was available.'; wrap.appendChild(n);
     }
     const ft0 = document.createElement('div'); ft0.className='ft';
-    ft0.textContent = clock(m.ts) + (m.dir==='out' && m.delivered!=null
-      ? (m.delivered ? ' · to '+m.delivered : ' · waiting') : '');
+    ft0.dataset.ftmid = m.id;
+    ft0.textContent = clock(m.ts) + outFooter(m);
     wrap.appendChild(ft0);
     return wrap;
   } else if (m.kind === 'loc' && m.loc && !m.loc.none) {
@@ -12727,8 +12740,8 @@ function bubbleEl(m, prev){
     }
   }
   const ft = document.createElement('div'); ft.className='ft';
-  ft.textContent = clock(m.ts) + (m.dir==='out'
-    ? (m.delivered==null ? '' : m.delivered ? ' · to '+m.delivered : ' · waiting') : '');
+  ft.dataset.ftmid = m.id;
+  ft.textContent = clock(m.ts) + outFooter(m);
   wrap.appendChild(ft);
 
   // long-press (touch) or right-click (desktop) -> copy / delete this message
@@ -12782,6 +12795,15 @@ function bubbleMenu(m, wrap){
   back.appendChild(sheet);
   back.onclick = (e) => { if (e.target === back) close(); };
   document.body.appendChild(back);
+}
+/* One place decides the outgoing footer, so delivery receipts can update it
+   live. Precedence: devices that have CONFIRMED unsealing it ("reached N")
+   beats the count of sockets that merely happened to be open at send time. */
+function outFooter(m){
+  if (m.dir !== 'out') return '';
+  if (m.acks && m.acks.length) return ' \u00b7 reached ' + m.acks.length;
+  if (m.delivered == null) return '';
+  return m.delivered ? ' \u00b7 to ' + m.delivered : ' \u00b7 waiting';
 }
 function appendBubble(m){
   const t = $('#thread'); if (!t) return;
@@ -12883,6 +12905,32 @@ function notifyPeers(c, kind){
     try { fetch('https://ntfy.sh/' + t, { method:'POST', body:'New message',
       headers:{ Title:'Nightjar' }, keepalive:true }).catch(()=>{}); } catch {}
   }
+}
+/* Delivery receipt: {mid, dev} sealed like everything else. dev is our notify
+   topic — already shared in-band, stable, and meaningless outside the group —
+   so the sender can count DISTINCT devices rather than raw frames. */
+async function sendAck(c, mid){
+  try {
+    const payload = new TextEncoder().encode(JSON.stringify({ mid, dev: myTopic() }));
+    await transmit(c, bytesReader(payload),
+      { k:'ack', s:payload.length, f:me, ts:Date.now(), mid:crypto.randomUUID() },
+      null, { silent:true, quiet:true });
+  } catch {}
+}
+async function applyAck(c, mid, dev){
+  try {
+    const raw = await new Promise(res => { const q = store('readonly').get(mid);
+      q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); });
+    if (!raw) return;                                   // ours? cleared? nothing to mark
+    const rec = await openRecord(raw);
+    if (rec.dir !== 'out') return;
+    const acks = Array.isArray(rec.acks) ? rec.acks : [];
+    if (acks.includes(dev)) return;                     // replayed receipt — already counted
+    rec.acks = [...acks, dev].slice(-24);
+    await put(rec);
+    const ft = document.querySelector('[data-ftmid="' + rec.id + '"]');
+    if (ft) ft.textContent = clock(rec.ts) + outFooter(rec);
+  } catch {}
 }
 /* Sealed control frame carrying our topic. Queued like any message so offline
    members learn it when they next sync; silent \u2014 no record, no bubble. */
@@ -13608,7 +13656,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>f15ca7765bd2</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>b971464ef36c</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
