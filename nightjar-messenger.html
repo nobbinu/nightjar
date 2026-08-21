@@ -13355,7 +13355,10 @@ function renderInfo(){
     <div class="card">
       <label class="lb">Leave</label>
       <p class="note" style="margin-top:0">Deletes this conversation and its messages from this device only.</p>
-      <div class="acts"><button class="btn warn" id="del">Leave conversation</button></div>
+      <div class="acts"><button class="btn warn" id="del" style="position:relative;overflow:hidden">
+        <span id="delfill" style="position:absolute;top:0;left:0;bottom:0;width:0%;background:rgba(255,255,255,.25)"></span>
+        <span style="position:relative">Hold to leave (3 seconds)</span>
+      </button></div>
     </div></div>`;
   $('#clrmsg').onclick = async () => {
     if (!confirm('Delete all messages in "'+c.name+'" from this device? The conversation and its key stay.')) return;
@@ -13403,12 +13406,38 @@ function renderInfo(){
     c.name = n.trim() || 'Unnamed';
     saveConvs(); renderInfo(); toast('Renamed');
   };
-  $('#del').onclick = async () => {
-    if (!confirm('Leave "'+c.name+'" and delete its messages from this device?')) return;
-    const s2 = socks.get(c.id); if (s2 && s2.ws) s2.ws.close();
-    socks.delete(c.id); await wipe(c.id);
-    convs = convs.filter(x=>x.id!==c.id); saveConvs(); renderList();
-  };
+  /* Leave is press-and-hold, 3 seconds — it sits right under Clear messages,
+     and a mis-tap that destroys a conversation is exactly the accident a hold
+     prevents. The hold IS the confirmation: release or slide off to abort, a
+     quick tap just teaches the gesture. Same mechanics as the lock-screen SOS. */
+  { const btn = $('#del'), fill = $('#delfill');
+    const HOLD = 3000; let t0 = 0, raf = 0, done = false;
+    const setFill = f => { fill.style.width = (Math.max(0, Math.min(1, f)) * 100).toFixed(1) + '%'; };
+    const doLeave = async () => {
+      if (done) return; done = true;
+      if (raf) cancelAnimationFrame(raf); raf = 0; setFill(1);
+      try { navigator.vibrate && navigator.vibrate(30); } catch {}
+      const s2 = socks.get(c.id); if (s2 && s2.ws) s2.ws.close();
+      socks.delete(c.id); await wipe(c.id);
+      convs = convs.filter(x=>x.id!==c.id); saveConvs(); renderList();
+      toast('Left "'+c.name+'"');
+    };
+    const tick = () => {
+      if (!t0 || done) return;
+      const f = (performance.now() - t0) / HOLD;
+      if (f >= 1) return void doLeave();
+      setFill(f); raf = requestAnimationFrame(tick);
+    };
+    const abort = () => {
+      if (done) return;
+      if (t0 && performance.now() - t0 < 400) toast('Hold for 3 seconds to leave');
+      if (raf) cancelAnimationFrame(raf); raf = 0; t0 = 0; setFill(0);
+    };
+    btn.addEventListener('contextmenu', e => e.preventDefault());
+    btn.addEventListener('pointerdown', e => { e.preventDefault(); if (done || t0) return;
+      t0 = performance.now(); raf = requestAnimationFrame(tick); });
+    ['pointerup','pointercancel','pointerleave'].forEach(ev => btn.addEventListener(ev, abort));
+  }
 }
 
 /* ---------- key backup ---------- */
@@ -13579,7 +13608,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>4ae377a01081</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>f15ca7765bd2</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
