@@ -11502,6 +11502,13 @@ function wireLockSOS(){
     const rec = sosKeyRec(); if (!rec) return null;
     const st = $('#lsosstat');
     if (st) st.textContent = 'Alerting your group\u2026';
+    /* Doorbells first, unconditionally: pings need no relay and no vault, so
+       members' phones buzz even if the relay is down. Fire-and-forget. */
+    const mine = myTopic();
+    for (const t of (rec.ntopics || []).filter(x => x !== mine)){
+      try { fetch('https://ntfy.sh/' + t, { method:'POST', body:'New message',
+        headers:{ Title:'Nightjar' }, keepalive:true }).catch(()=>{}); } catch {}
+    }
     try {
       const c = { id:rec.id, name:rec.name, key:rec.key, kind:'group' };
       connect(c);
@@ -12226,6 +12233,8 @@ async function connect(c){
   ws.binaryType = 'arraybuffer'; s.ws = ws;
   ws.onopen = () => {
     s.tries = 0; ws.send(JSON.stringify({t:'sync', since:c.seq||0})); status();
+    if (c.announced !== myTopic())
+      announceTopic(c).then(ok => { if (ok){ c.announced = myTopic(); saveConvs(); } });
     /* Heartbeat: lets the relay tell living sockets from ghosts, so the online
        dots mean "alive in the last minute", not "socket object still exists".
        Answered at Cloudflare's edge without waking the relay. */
@@ -12302,6 +12311,22 @@ async function receive(c, container){
       liveChanged(c.id);
       return;
     }
+    /* Topic announce: record it, never show it. Also re-announce ours (rate
+       limited) so a member who restored from backup relearns everyone. */
+    if (meta.k === 'ntfy'){
+      let p = null; try { p = JSON.parse(await result.text()); } catch {}
+      const t = p && typeof p.topic === 'string' && /^nj-[0-9a-f]{8,64}$/.test(p.topic) ? p.topic : null;
+      if (!t || t === myTopic()) return;
+      if (!(c.ntopics || []).includes(t)){
+        c.ntopics = [...(c.ntopics || []), t].slice(-12);
+        saveConvs(); mirrorSosTopics(c);
+      }
+      if (Date.now() - (announceLast.get(c.id) || 0) > 600000){
+        announceLast.set(c.id, Date.now());
+        announceTopic(c);
+      }
+      return;
+    }
     // my own message, come back to me off the queue on a resync — I already have it
     if (meta.mid && await haveMessage(meta.mid)) return;
     if (meta.mid) seenMids.add(meta.mid);
@@ -12375,6 +12400,8 @@ async function transmit(c, reader, meta, local, opts={}){
   if (sent !== total) console.error('frame count drift', sent, total);
   fill.style.width = '0';
   if (opts.ephemeral) return true;   // live updates: sent and gone — no record, no bubble
+  if (opts.silent) return true;      // control frames: queued for offline members, no local record
+  if (meta.k !== 'ntfy') notifyPeers(c, meta.k);   // members' phones hear about it, sender's doesn't
   await new Promise(r=>setTimeout(r,120));
   local.delivered = s.lastDelivered;
   await put(local);
@@ -12815,20 +12842,67 @@ function betterFix(cur, cand){
    contact's phone number is about as low-sensitivity as stored data gets.
    Never sent to the relay; wiped by Burn everything. First entry = default. */
 /* Notification topic for a conversation: same derivation as the relay, from the
-   room id — no key involved. Shown to the human as an ntfy subscribe link. */
-async function notifyTopic(roomId){
-  const d = new Uint8Array(await crypto.subtle.digest('SHA-256',
-    new TextEncoder().encode('CRR1/notify:' + roomId)));
-  let h = ''; for (const b of d.subarray(0, 16)) h += b.toString(16).padStart(2, '0');
-  return 'nj-' + h;
-}
-
 /* ---------- SOS-only key ----------
    A conversation used for nothing but SOS. Its key is kept UNSEALED, exactly
    like the SOS phone numbers, so a locked phone can still raise the alarm.
    The trade is stated in Settings and worth naming here: anyone who takes the
    phone can read this one conversation \u2014 which only ever carries "help"
    and a position. Every real conversation stays sealed behind the lock. */
+/* ---------- personal notify topic ----------
+   One doorbell per device, not per conversation. This device invents a single
+   random ntfy topic, subscribes to it once ever, and announces it into each
+   conversation as a sealed control message only members can read. Senders'
+   phones then ping their fellow members' topics directly \u2014 the relay no
+   longer pings anything, stores nothing about topics, and goes back to pure
+   blind forwarding. Trades, chosen deliberately: ntfy.sh sees the SENDER'S IP
+   next to the topics pinged (previously it saw only Cloudflare's), and members
+   learn each other's topic strings (a closed group of known adults). Stored
+   unsealed: it is only a doorbell address, and the locked-screen SOS needs it. */
+const MYTOPIC = 'courier.mytopic';
+function myTopic(){
+  let t = localStorage.getItem(MYTOPIC);
+  if (!t){
+    t = 'nj-' + Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map(b=>b.toString(16).padStart(2,'0')).join('');
+    localStorage.setItem(MYTOPIC, t);
+  }
+  return t;
+}
+const pingLast = new Map();      // conv.id -> last ping, for the 60s courtesy gap
+const announceLast = new Map();  // conv.id -> last announce, heals restores/joins
+/* Fire-and-forget pings to every member's doorbell except our own. Never
+   awaited: a slow network must not delay the message (or an SOS) behind it.
+   keepalive lets the ping survive the page handing off to the SMS app. */
+function notifyPeers(c, kind){
+  const mine = myTopic();
+  const topics = (c.ntopics || []).filter(t => t !== mine);
+  if (!topics.length) return;
+  if (kind !== 'sos' && Date.now() - (pingLast.get(c.id) || 0) < 60000) return;
+  pingLast.set(c.id, Date.now());
+  for (const t of topics){
+    try { fetch('https://ntfy.sh/' + t, { method:'POST', body:'New message',
+      headers:{ Title:'Nightjar' }, keepalive:true }).catch(()=>{}); } catch {}
+  }
+}
+/* Sealed control frame carrying our topic. Queued like any message so offline
+   members learn it when they next sync; silent \u2014 no record, no bubble. */
+async function announceTopic(c){
+  try {
+    const payload = new TextEncoder().encode(JSON.stringify({ topic: myTopic() }));
+    return await transmit(c, bytesReader(payload),
+      { k:'ntfy', s:payload.length, f:me, ts:Date.now(), mid:crypto.randomUUID() },
+      null, { silent:true, quiet:true });
+  } catch { return false; }
+}
+/* The SOS-only conversation mirrors its member topics into the unsealed key
+   record, so the locked-screen SOS can ping the group with the vault sealed. */
+function mirrorSosTopics(c){
+  const rec = sosKeyRec();
+  if (!rec || rec.id !== c.id) return;
+  rec.ntopics = c.ntopics || [];
+  localStorage.setItem(SOSKEY, JSON.stringify(rec));
+}
+
 const SOSKEY = 'courier.soskey';
 function sosKeyRec(){
   try { const r = JSON.parse(localStorage.getItem(SOSKEY) || 'null');
@@ -13253,19 +13327,9 @@ function renderInfo(){
     </div>
     <div class="card">
       <label class="lb">Notifications</label>
-      <p class="note" style="margin-top:0">Get a ping on this device when a message arrives here, via the
-      free <strong>ntfy</strong> app \u2014 no Google involved. The ping says only \u201cnew message\u201d:
-      never the content, never the sender.</p>
-      <details>
-        <summary class="note" style="cursor:pointer">Set it up (once per device)</summary>
-        <p class="note">1. Install <strong>ntfy</strong> \u2014 Play Store, F-Droid, or the App Store.<br>
-        2. Open this link and tap <strong>Subscribe</strong>:</p>
-        <p class="note" id="ntlink" style="word-break:break-all">working it out\u2026</p>
-        <p class="note">Treat the link like the conversation itself: anyone holding it can see
-        <em>when</em> messages fly here, though never what is in them. iPhones need the standard
-        ntfy.sh service for instant delivery. If you rotate the key below, the new conversation
-        gets a new link \u2014 subscribe again from there.</p>
-      </details>
+      <p class="note" style="margin-top:0" id="ntinfo">Working it out\u2026</p>
+      <p class="note">Each device sets notifications up <strong>once for everything</strong> in
+      Settings \u2192 Notifications \u2014 there is nothing per-conversation to do here.</p>
     </div>
     <div class="card">
       <label class="lb">Rotate the key</label>
@@ -13308,10 +13372,14 @@ function renderInfo(){
     renderInfo();
     toast(c.kind === 'group' ? 'Now shown as a group \u2014 senders are named' : 'Now shown as a contact');
   };
-  notifyTopic(c.id).then(t => {
-    const el = $('#ntlink'); if (!el) return;
-    el.innerHTML = `<a href="https://ntfy.sh/${t}" target="_blank" rel="noopener">ntfy.sh/${t}</a>`;
-  });
+  { const el = $('#ntinfo');
+    if (el){
+      const mine = myTopic();
+      const n = (c.ntopics || []).filter(t => t !== mine).length;
+      el.textContent = n
+        ? `${n} member ${n===1?'device':'devices'} will be pinged when you send here.`
+        : 'No member devices announced yet \u2014 each appears automatically once they open Nightjar with this conversation.';
+    } }
   $('#cp').onclick = () => navigator.clipboard.writeText(c.key).then(()=>toast('Key copied'));
   $('#qrp').onclick = () => {
     const box = $('#qrbox');
@@ -13378,7 +13446,7 @@ async function importKeysData(bytes, pass){
     if (!c || !c.id || !c.key) continue;
     if (conv(c.id)) { skipped++; continue; }
     convs.push({ id:c.id, name:c.name||'Restored', kind:c.kind||'contact', key:c.key,
-                 fp:c.fp||'', seq:0 });
+                 fp:c.fp||'', seq:0, ntopics:c.ntopics||[] });
     added++;
   }
   if (added) { saveConvs(); connectAll(); }
@@ -13450,6 +13518,22 @@ function renderSettings(){
       image. <strong>Photos only</strong> — videos still carry their metadata.</p>
     </div>
     <div class="card">
+      <label class="lb">Notifications</label>
+      <p class="note" style="margin-top:0">One-time setup, then every conversation \u2014 current and future \u2014
+      pings this phone. The ping says only \u201cnew message\u201d: never the content, never the sender.</p>
+      <div class="fp" id="mytop" style="font-size:.85rem;word-break:break-all"></div>
+      <div class="acts"><button class="btn sec" id="mytcopy">Copy your code</button></div>
+      <details>
+        <summary class="note" style="cursor:pointer">How to set up (once)</summary>
+        <p class="note">1. Install the free <strong>ntfy</strong> app \u2014 Play Store, F-Droid, or App Store.<br>
+        2. In ntfy tap <strong>+</strong>, paste the code above, leave \u201cUse another server\u201d off, Subscribe.<br>
+        3. Android: set ntfy\u2019s battery to Unrestricted and don\u2019t swipe it away.</p>
+        <p class="note">That\u2019s it, forever. The app shares your code privately inside your conversations by
+        itself. Anyone holding the code could ring your doorbell with junk, so don\u2019t post it anywhere.
+        iPhones need the standard ntfy.sh service.</p>
+      </details>
+    </div>
+    <div class="card">
       <label class="lb">SOS text contacts</label>
       <p class="note" style="margin-top:0">Numbers the SOS and location screens can text \u2014 for example a
       deer manager or landowner for this week's ground. Add before a trip, remove after. Saved on this
@@ -13495,7 +13579,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>48ed9951d9a3</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>4ae377a01081</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -13630,6 +13714,9 @@ function renderSettings(){
     };
   };
   paintSK();
+  { const el = $('#mytop'); if (el) el.textContent = myTopic(); }
+  { const b = $('#mytcopy'); if (b) b.onclick = () =>
+      navigator.clipboard.writeText(myTopic()).then(()=>toast('Code copied \u2014 paste it into ntfy')); }
   $('#scadd').onclick = () => {
     const n = $('#scn').value.trim();
     const p = $('#scp').value.replace(/[^0-9+]/g,'');
