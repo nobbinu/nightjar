@@ -13656,7 +13656,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>b971464ef36c</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>240023dce5f5</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -14012,6 +14012,29 @@ async function sendLocation(){
       : 'Could not get a fix here');
   }, { enableHighAccuracy:true, timeout:30000, maximumAge:30000 });
 }
+/* Paste-to-send: copy an image anywhere, long-press the message box, Paste.
+   The platform decides what paste can carry — in practice images and text.
+   Documents copy as references, not bytes, so they never arrive here and stay
+   on the paperclip route. A pasted image rides the SAME path as a picked one,
+   location-strip included; pasted text falls through to the box untouched. */
+$('#entry').addEventListener('paste', (e) => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (const it of items){
+    if (it.kind !== 'file') continue;
+    const f = it.getAsFile();
+    if (!f || !f.type || !f.type.startsWith('image/')) continue;
+    e.preventDefault();                       // it's a photo send, not text entry
+    const c = conv(openId); if (!c) return;
+    (async () => {
+      /* Clipboard files arrive named "image.png" or blank — either way the
+         strip path renames to photo.* and the fallback keeps a neutral name. */
+      const named = f.name ? f : new File([f], 'photo.' + (f.type.split('/')[1] || 'jpg'), { type: f.type });
+      await sendFile(c, await stripPhotoLocation(named));
+    })();
+    return;                                   // one image per paste, deliberately
+  }
+});
 $('#picker').onchange = async () => {
   const c = conv(openId), f = $('#picker').files[0];
   const mode = $('#picker').dataset.mode;
