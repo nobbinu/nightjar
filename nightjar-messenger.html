@@ -12327,8 +12327,13 @@ async function receive(c, container){
       const t = p && typeof p.topic === 'string' && /^nj-[0-9a-f]{8,64}$/.test(p.topic) ? p.topic : null;
       if (!t || t === myTopic()) return;
       if (!(c.ntopics || []).includes(t)){
-        c.ntopics = [...(c.ntopics || []), t].slice(-12);
-        saveConvs(); mirrorSosTopics(c);
+        /* Cap by REFUSING new topics when full, never by evicting old ones: with
+           eviction, a key holder announcing 12 topics of their own silently
+           pushes honest members out and kills everyone's notifications. */
+        if ((c.ntopics || []).length < 12){
+          c.ntopics = [...(c.ntopics || []), t];
+          saveConvs(); mirrorSosTopics(c);
+        }
       }
       if (Date.now() - (announceLast.get(c.id) || 0) > 600000){
         announceLast.set(c.id, Date.now());
@@ -13378,6 +13383,8 @@ function renderInfo(){
       <p class="note" style="margin-top:0" id="ntinfo">Working it out\u2026</p>
       <p class="note">Each device sets notifications up <strong>once for everything</strong> in
       Settings \u2192 Notifications \u2014 there is nothing per-conversation to do here.</p>
+      <p class="note">\u201cReached\u201d under a message counts devices that confirmed unsealing it. It is a
+      courtesy signal, not proof \u2014 anyone holding this conversation's key could inflate it.</p>
     </div>
     <div class="card">
       <label class="lb">Rotate the key</label>
@@ -13608,6 +13615,9 @@ function renderSettings(){
         <p class="note">That\u2019s it, forever. The app shares your code privately inside your conversations by
         itself. Anyone holding the code could ring your doorbell with junk, so don\u2019t post it anywhere.
         iPhones need the standard ntfy.sh service.</p>
+        <p class="note">Pings go from your phone straight to ntfy.sh, so ntfy.sh can see that your
+        device sent one, to which code, and when \u2014 never the message, the sender, or which
+        conversation it belongs to.</p>
       </details>
     </div>
     <div class="card">
@@ -13656,7 +13666,7 @@ function renderSettings(){
     </div>
     <div class="card">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>240023dce5f5</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>c90be4b37700</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -13677,7 +13687,9 @@ function renderSettings(){
       from this device. It cannot be undone, and without a key backup there is no way back in —
       rejoining means pairing with everyone from scratch. Other people's devices are unaffected
       and are not told.</p>
-      <p class="note">This is a clean-out, not forensic erasure — the browser may leave traces on disk
+      <p class="note">This clears this device only. Messages already collected by other members stay
+      on their phones, and anything still queued stays on the relay until it expires (up to 7 days).
+      This is a clean-out, not forensic erasure — the browser may leave traces on disk
       until the space is reused. For disk-level certainty, wipe the device itself.</p>
       <div class="acts"><button class="btn" id="burn"><span id="burnfill"></span><span id="burnlab">Burn everything</span></button></div>
     </div></div>`;
@@ -13771,7 +13783,8 @@ function renderSettings(){
         <button class="btn sec" id="skdel">Remove</button>
       </div>
       <p class="note" style="border-left:3px solid var(--danger);padding-left:.6rem">
-      <strong>The trade:</strong> anyone who takes this phone can read this one conversation.
+      <strong>The trade:</strong> anyone who takes this phone can read this one conversation \u2014
+      and can keep reading it from their own device afterwards, until you replace this key.
       It only ever carries \u201chelp\u201d and a position — your real conversations stay sealed.</p>
       <p class="note">Everyone else adds this key once as a <strong>group</strong>, then subscribes to its
       notification topic from its Details screen.</p>`
