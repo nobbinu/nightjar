@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<meta name="theme-color" content="#eef0f5" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#101218" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f3f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1211" media="(prefers-color-scheme: dark)">
 <title>Nightjar</title>
 <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNjM2IwZmYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjNmQzZmQ0Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPHJhZGlhbEdyYWRpZW50IGlkPSJtb29uIiBjeD0iMC41IiBjeT0iMC40NSIgcj0iMC42Ij4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjMjAyMjJmIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzBkMGUxMyIvPgogICAgPC9yYWRpYWxHcmFkaWVudD4KICA8L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiIHJ4PSIxMTIiIGZpbGw9IiMwZDBlMTMiLz4KICA8Y2lyY2xlIGN4PSIyNTYiIGN5PSIyNTYiIHI9IjE1MiIgZmlsbD0idXJsKCNtb29uKSIvPgogIDwhLS0gc3dpZnQgc2lsaG91ZXR0ZTogbG9uZyBzY3l0aGUgd2luZ3Mgc3dlcHQgYmFjaywgc21hbGwgaGVhZCwgZm9ya2VkIHRhaWwgLS0+CiAgPHBhdGggZmlsbD0idXJsKCNnKSIgZD0iCiAgICBNMTUwIDE1MAogICAgYzU4IDM0IDk2IDY0IDEyMCA5NgogICAgYzMwLTEyIDY2LTE2IDEwOC04CiAgICBjLTM0IDgtNjAgMjItNzggNDAKICAgIGMtMiAzMC0xNiA1OC00NCA4MgogICAgYzgtMzQgNi02Mi02LTg0CiAgICBjLTQwLTMwLTgyLTc0LTEwMC0xMjZ6IiB0cmFuc2Zvcm09InJvdGF0ZSg4IDI1NiAyNTYpIi8+Cjwvc3ZnPg==">
 <link rel="apple-touch-icon" href="./nightjar-180.png">
@@ -13,261 +13,318 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Nightjar">
 <style>
+/* Tokens. Night is the default; Daylight is a high-contrast light theme for use
+   outdoors. data-theme on <html> forces one; with none set the phone's own
+   light/dark setting decides (see applyTheme). Fill colours (--accent, --danger,
+   --amber) carry white or dark ink; the -lit versions are for text on the
+   surface and are picked to pass 4.5:1 in both themes. */
 :root{
   color-scheme:dark;
-  --bg:#0d0e13; --surface:#242631; --surface-2:#2e313f; --line:#3a3d4d;
-  --text:#f2f3f7; --dim:#9195a6; --faint:#6e7286;
-  --accent:#8b5cf6; --accent-ink:#ffffff; --accent-soft:#332a52; --accent-lit:#a78bfa;
-  --danger:#e0655a; --danger-soft:#2c1a1a; --ok:#4ec78f;
-  --in:#1e1f29; --out:#6d3fd4;
-  --r:18px; --r-sm:10px;
+  --bg:#0e1211; --surface:#181d1b; --surface-2:#212725; --line:#2f3734; --bline:transparent;
+  --text:#f2f5f3; --fg:#f2f5f3; --dim:#a9b3ae; --faint:#98a39e;
+  --accent:#1f7a6c; --accent-ink:#ffffff; --accent-soft:#143029; --accent-lit:#5fd0bd;
+  --danger:#cf3b30; --danger-soft:#2a1210; --danger-lit:#ff9d94; --ok:#4fd08a;
+  --amber:#f0b23e; --amber-ink:#1a1407; --amber-soft:#2a2210; --amber-lit:#f0b23e;
+  --in:#181d1b; --out:#1c6b5f; --out-ft:#d6efe9;
+  --field:#0e1211; --field-line:#48534e;
+  --r:18px; --r-sm:8px;
   --shadow:0 2px 10px rgba(0,0,0,.35);
   --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;
   --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
 }
+:root[data-theme="day"]{
+  color-scheme:light;
+  --bg:#f3f5f2; --surface:#ffffff; --surface-2:#e6ebe7; --line:#cfd6d1; --bline:#cfd6d1;
+  --text:#0f1513; --fg:#0f1513; --dim:#47524d; --faint:#5a6560;
+  --accent:#155a4f; --accent-ink:#ffffff; --accent-soft:#dcebe5; --accent-lit:#0d5f53;
+  --danger:#c2362b; --danger-soft:#fbe9e6; --danger-lit:#a3261c; --ok:#12703f;
+  --amber:#7a4f00; --amber-ink:#ffffff; --amber-soft:#fdf0d2; --amber-lit:#7a4f00;
+  --in:#ffffff; --out:#155a4f; --out-ft:#d6efe9;
+  --field:#ffffff; --field-line:#8e9994;
+  --shadow:0 1px 4px rgba(15,21,19,.12);
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="night"]){
+    color-scheme:light;
+    --bg:#f3f5f2; --surface:#ffffff; --surface-2:#e6ebe7; --line:#cfd6d1; --bline:#cfd6d1;
+    --text:#0f1513; --fg:#0f1513; --dim:#47524d; --faint:#5a6560;
+    --accent:#155a4f; --accent-ink:#ffffff; --accent-soft:#dcebe5; --accent-lit:#0d5f53;
+    --danger:#c2362b; --danger-soft:#fbe9e6; --danger-lit:#a3261c; --ok:#12703f;
+    --amber:#7a4f00; --amber-ink:#ffffff; --amber-soft:#fdf0d2; --amber-lit:#7a4f00;
+    --in:#ffffff; --out:#155a4f; --out-ft:#d6efe9;
+    --field:#ffffff; --field-line:#8e9994;
+    --shadow:0 1px 4px rgba(15,21,19,.12);
+  }
+}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;min-height:100%;overscroll-behavior:none}
 body{
-  background:#0d0e13;color:#f2f3f7;font-family:var(--font);font-size:16px;
+  background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px;
   display:flex;flex-direction:column;min-height:100dvh;-webkit-text-size-adjust:100%;
 }
 button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 input,textarea,select{font:inherit;color:var(--text)}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+:focus-visible{outline:2px solid var(--accent-lit);outline-offset:2px}
+code{font-family:var(--mono);font-size:.92em}
 
 /* ---------- top bar ---------- */
 .bar{
   position:sticky;top:0;z-index:10;
-  flex:0 0 auto;display:flex;align-items:center;gap:.5rem;
-  padding:calc(.35rem + env(safe-area-inset-top)) .6rem .35rem;
+  flex:0 0 auto;display:flex;align-items:center;gap:.35rem;
+  padding:calc(.5rem + env(safe-area-inset-top)) .5rem .5rem;
   background:var(--bg);
 }
-.bar.big{padding-top:calc(.9rem + env(safe-area-inset-top));padding-left:1.05rem;padding-bottom:.15rem}
-.bar h1{font-size:1.2rem;font-weight:650;margin:0;flex:1;letter-spacing:-.01em;
+.bar.big{padding-top:calc(1rem + env(safe-area-inset-top));padding-left:1rem;padding-bottom:.35rem}
+.bar h1{font-size:1.15rem;font-weight:700;margin:0;flex:0 1 auto;min-width:0;letter-spacing:-.01em;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bar.big h1{font-size:2rem;font-weight:750;letter-spacing:-.03em}
-.bar .sub{display:block;font-size:.75rem;font-weight:400;color:var(--dim);margin-top:1px}
-.iconbtn{width:40px;height:40px;display:grid;place-items:center;border-radius:50%;flex:0 0 auto}
-.iconbtn:hover{background:var(--surface-2)}
-.iconbtn svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.9;
+.bar.big h1{font-size:1.9rem;font-weight:750;letter-spacing:-.02em}
+.bar .sub{display:block;font-size:.8rem;font-weight:400;color:var(--dim);margin-top:1px;letter-spacing:0}
+.iconbtn{width:48px;height:48px;display:grid;place-items:center;border-radius:50%;flex:0 0 auto}
+.iconbtn:hover,.iconbtn:active{background:var(--surface-2)}
+.iconbtn svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:2;
   stroke-linecap:round;stroke-linejoin:round}
 
 /* ---------- SOS ---------- */
+/* The pill sits at the right of the bar, in the same place on every screen. */
 .sosbtn{
-  position:absolute;left:50%;transform:translateX(-50%);
-  top:calc(.35rem + env(safe-area-inset-top));
-  background:var(--danger);color:#fff;font-weight:800;font-size:.92rem;letter-spacing:.08em;
-  padding:.5rem 1.15rem;border-radius:999px;min-height:40px;
-  text-align:center;box-shadow:0 3px 12px rgba(224,101,90,.4);
+  flex:0 0 auto;margin-left:auto;
+  background:var(--danger);color:#fff;font-weight:800;font-size:1rem;letter-spacing:.08em;
+  padding:0 1.2rem;border-radius:999px;min-height:48px;text-align:center;
 }
-.bar.big .sosbtn{top:calc(.9rem + env(safe-area-inset-top))}
-/* keep titles from running under the centred pill */
-.bar h1{flex:0 1 auto;max-width:calc(50% - 70px)}
-.rgrp{margin-left:auto;display:flex;align-items:center;gap:.5rem;flex:0 0 auto}
-.sosbtn:active{transform:scale(.97)}
+.rgrp{margin-left:auto;display:flex;align-items:center;gap:.15rem;flex:0 0 auto}
+.sosbtn:not(.hide) + .rgrp{margin-left:.25rem}
 .sosbtn:active{transform:scale(.97)}
 .fixbig{font-family:var(--mono);font-size:1.35rem;font-weight:700;text-align:center;margin:.2rem 0}
-.gridref{font-family:var(--mono);font-size:1.5rem;font-weight:700;text-align:center;
-  color:var(--accent-lit);letter-spacing:.04em;margin:.1rem 0 .3rem}
-.acc{text-align:center;font-size:.85rem;color:var(--ok)}
-.acc.poor{color:var(--danger)}
-.bigred{background:var(--danger);color:#fff;font-weight:800;font-size:1.15rem;letter-spacing:.06em;
-  border-radius:14px;padding:1.05rem;width:100%;margin-bottom:.5rem;min-height:60px}
-.warnbox{background:var(--danger-soft);border-left:3px solid var(--danger);border-radius:10px;
-  padding:.7rem .85rem;font-size:.82rem;color:#f0b8b0;line-height:1.45;margin-top:.8rem}
+.gridref{font-family:var(--mono);font-size:1.9rem;font-weight:750;text-align:center;
+  color:var(--text);letter-spacing:.03em;margin:.1rem 0 .3rem}
+.acc{text-align:center;font-size:.95rem;font-weight:650;color:var(--ok)}
+.acc.poor{color:var(--danger-lit)}
+.bigred{background:var(--danger);color:#fff;font-weight:800;font-size:1.2rem;letter-spacing:.06em;
+  border-radius:20px;padding:1.05rem;width:100%;margin-bottom:.5rem;min-height:72px}
+.warnbox{background:var(--danger-soft);border:1px solid var(--danger);border-radius:12px;
+  padding:.75rem .9rem;font-size:.88rem;color:var(--danger-lit);line-height:1.45;margin-top:.8rem}
 .chips{display:flex;gap:.5rem;flex-wrap:wrap;margin:.2rem 0 .6rem}
 .chip{background:var(--surface-2);border:1px solid var(--line);border-radius:999px;
-  padding:.45rem .85rem;font-size:.85rem;font-weight:600;min-height:38px}
+  padding:.5rem .95rem;font-size:.92rem;font-weight:600;min-height:44px}
 .chip:active{background:var(--accent-soft)}
-.pick{display:flex;align-items:center;gap:.7rem;padding:.5rem .1rem;font-size:.95rem;cursor:pointer}
-.pick input{width:22px;height:22px;accent-color:var(--accent);flex:0 0 auto}
+.pick{display:flex;align-items:center;gap:.8rem;padding:.5rem .1rem;font-size:1rem;cursor:pointer;min-height:48px}
+.pick input{width:24px;height:24px;accent-color:var(--accent-lit);flex:0 0 auto}
 .b.sos{background:var(--danger-soft);border:1px solid var(--danger);align-self:stretch;
-  max-width:100%;border-radius:12px}
-.b.sos .hdr{color:var(--danger);font-weight:800;letter-spacing:.06em;font-size:.9rem;
+  max-width:100%;border-radius:14px}
+.b.sos .hdr{color:var(--danger-lit);font-weight:800;letter-spacing:.06em;font-size:.95rem;
   margin-bottom:.3rem}
-.b.sos .gr{font-family:var(--mono);font-size:1.1rem;font-weight:700;color:var(--text)}
-.age{font-size:.78rem;font-weight:600;color:var(--accent-lit);margin-top:.3rem}
-.b .l2{font-family:var(--mono);font-size:.75rem;opacity:.72;display:block;margin-top:.15rem}
-.b .links{display:flex;gap:.9rem;margin-top:.4rem}
-.b .links a{font-size:.82rem;font-weight:600;color:var(--accent-lit);text-decoration:none}
-.age.stale{color:var(--danger)}
+.b.sos .gr{font-family:var(--mono);font-size:1.25rem;font-weight:700;color:var(--text)}
+.age{font-size:.82rem;font-weight:650;color:var(--accent-lit);margin-top:.3rem}
+.b .l2{font-family:var(--mono);font-size:.8rem;opacity:.85;display:block;margin-top:.15rem}
+.b .links{display:flex;gap:1rem;margin-top:.45rem;flex-wrap:wrap}
+.b .links a{font-size:.92rem;font-weight:650;color:var(--accent-lit);text-decoration:none;padding:.35rem 0}
+.age.stale{color:var(--danger-lit)}
 
 /* ---------- search ---------- */
-.searchwrap{flex:0 0 auto;padding:.5rem 1rem .75rem;background:var(--bg);
-  border-bottom:1px solid var(--line)}
-.search{width:100%;background:var(--surface-2);border:0;border-radius:12px;
-  padding:.72rem .9rem;font-size:1rem;color:var(--text);outline:none}
-.search::placeholder{color:var(--faint)}
+.searchwrap{flex:0 0 auto;padding:.35rem 1rem .75rem;background:var(--bg)}
+.search{width:100%;background:var(--surface);border:1px solid var(--bline);border-radius:14px;
+  padding:.8rem .95rem;font-size:1rem;color:var(--text);outline:none;min-height:48px}
+.search::placeholder{color:var(--dim)}
 
 /* ---------- avatars ---------- */
+/* The inset shadow darkens whatever palette colour the code sets, under the
+   initials, so white lettering stays readable on the lighter hues. */
 .av{
   width:52px;height:52px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;
-  color:#fff;font-weight:700;font-size:1.02rem;letter-spacing:.01em;
+  color:#fff;font-weight:700;font-size:1.05rem;letter-spacing:.01em;
+  box-shadow:inset 0 0 0 99px rgba(0,0,0,.28);
 }
-.av.sm{width:34px;height:34px;font-size:.8rem}
+.av.sm{width:40px;height:40px;font-size:.85rem}
 
 /* ---------- scroll region ---------- */
 main{flex:1 1 auto;overflow:visible}
 .pad{padding:1rem;max-width:38rem;margin:0 auto}
 
 /* ---------- conversation list ---------- */
-.rows{max-width:38rem;margin:0 auto;padding:.25rem 0 6rem}
+.rows{max-width:38rem;margin:0 auto;padding:.25rem 0 6.5rem}
 .row{
-  display:flex;align-items:center;gap:.85rem;width:100%;text-align:left;padding:.62rem 1rem;
+  display:flex;align-items:center;gap:.9rem;width:100%;text-align:left;padding:.7rem 1rem;min-height:76px;
 }
 .row:active{background:var(--surface)}
 .row .mid{flex:1;min-width:0}
 .row .top{display:flex;align-items:baseline;gap:.5rem}
-.row .nm{font-weight:650;font-size:1.05rem;flex:1;min-width:0;letter-spacing:-.01em;
+.row .nm{font-weight:650;font-size:1.06rem;flex:1;min-width:0;letter-spacing:-.01em;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.row .prev{font-size:.94rem;color:var(--dim);overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap;margin-top:1px}
+.row .prev{font-size:.95rem;color:var(--dim);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;margin-top:2px}
 .row .prev b{color:var(--dim);font-weight:400}
 .row .right{display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;flex:0 0 auto;
   padding-left:.2rem}
-.time{font-size:.82rem;color:var(--faint);white-space:nowrap}
-.time.new{color:var(--accent-lit);font-weight:600}
-.pill{background:var(--accent);color:var(--accent-ink);font-size:.78rem;font-weight:650;
+.time{font-size:.82rem;color:var(--dim);white-space:nowrap}
+.time.new{color:var(--amber-lit);font-weight:650}
+.pill{background:var(--amber);color:var(--amber-ink);font-size:.82rem;font-weight:750;
   min-width:26px;height:26px;padding:0 8px;border-radius:13px;display:grid;place-items:center}
-.dot{width:9px;height:9px;border-radius:50%;background:var(--ok);margin:.4rem 0}
-.tag{font-size:.66rem;font-weight:600;color:var(--dim);border:1px solid var(--line);
-  padding:0 .35rem;border-radius:4px;text-transform:uppercase;letter-spacing:.04em}
+.dot{width:11px;height:11px;border-radius:50%;background:var(--ok);margin:.4rem 0}
+.tag{font-size:.68rem;font-weight:700;color:var(--dim);border:1px solid var(--line);
+  padding:1px .4rem;border-radius:6px;text-transform:uppercase;letter-spacing:.06em;
+  margin-left:.45rem;vertical-align:middle}
 
 /* ---------- floating action ---------- */
 .fab{
   position:fixed;right:1rem;bottom:calc(1.4rem + env(safe-area-inset-bottom));
-  width:60px;height:60px;border-radius:20px;background:var(--accent);color:var(--accent-ink);
-  box-shadow:0 6px 18px rgba(139,92,246,.35);display:grid;place-items:center;z-index:5;
+  height:56px;padding:0 1.35rem 0 1.1rem;border-radius:28px;background:var(--accent);color:var(--accent-ink);
+  box-shadow:0 6px 18px rgba(0,0,0,.35);display:flex;align-items:center;gap:.5rem;z-index:5;
+  font-size:1rem;font-weight:700;
 }
-.fab svg{width:26px;height:26px;stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round}
+.fab svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round}
 
 /* ---------- thread ---------- */
 #thread{max-width:38rem;margin:0 auto;padding:.75rem .75rem 1rem;
   display:flex;flex-direction:column;gap:2px}
-.day{align-self:center;font-size:.72rem;color:var(--dim);background:var(--surface-2);
-  padding:.2rem .6rem;border-radius:10px;margin:.9rem 0 .5rem}
+.day{align-self:center;font-size:.8rem;font-weight:600;color:var(--dim);background:var(--surface-2);
+  padding:.25rem .75rem;border-radius:10px;margin:.9rem 0 .5rem}
 .b{
-  max-width:82%;padding:.5rem .7rem;border-radius:var(--r);background:var(--in);
-  box-shadow:var(--shadow);font-size:.97rem;line-height:1.38;word-break:break-word;
-  align-self:flex-start;border-bottom-left-radius:var(--r-sm);margin-top:.45rem;
+  max-width:82%;padding:.55rem .8rem;border-radius:var(--r);background:var(--in);
+  border:1px solid var(--bline);
+  font-size:1rem;line-height:1.4;word-break:break-word;
+  align-self:flex-start;border-bottom-left-radius:var(--r-sm);margin-top:.5rem;
 }
-.b.out{align-self:flex-end;background:var(--out);color:#fff;
+.b.out{align-self:flex-end;background:var(--out);color:#fff;border-color:transparent;
   border-bottom-left-radius:var(--r);border-bottom-right-radius:var(--r-sm)}
-.b.mid{border-bottom-left-radius:var(--r);margin-top:2px}
+.b.mid{border-bottom-left-radius:var(--r);margin-top:3px}
 .b.out.mid{border-bottom-right-radius:var(--r)}
-
-.b .b.grp{position:relative;border-left:3px solid var(--who,transparent);padding-left:calc(.7rem - 0px)}
-.who{font-size:.78rem;font-weight:650;color:var(--accent);margin-bottom:.15rem}
-.b .ft{font-size:.68rem;color:var(--faint);margin-top:.2rem;text-align:right;
+/* Group sender names take the per-sender colour the code sets in --who, pulled
+   toward the text colour so it reads on a dark bubble and on a white one. */
+.who{font-size:.82rem;font-weight:700;margin-bottom:.15rem;color:var(--who,var(--accent-lit));
+  color:color-mix(in srgb,var(--who,var(--accent-lit)) 58%,var(--text))}
+.b .ft{font-size:.75rem;color:var(--dim);margin-top:.2rem;text-align:right;
   display:flex;gap:.3rem;justify-content:flex-end;align-items:center}
-.b.out .ft{color:rgba(255,255,255,.72)}
-.b.bad{background:var(--danger-soft);color:var(--danger);align-self:center;max-width:92%;
-  font-size:.85rem;text-align:center;box-shadow:none;border-radius:var(--r-sm)}
-.b .media{margin:.15rem 0 .2rem;border-radius:var(--r-sm);overflow:hidden;display:block}
-.b img,.b video{display:block;max-width:100%;max-height:60vh;border-radius:var(--r-sm)}
+.b.out .ft{color:var(--out-ft)}
+.b.bad{background:var(--danger-soft);color:var(--danger-lit);align-self:center;max-width:92%;
+  font-size:.88rem;text-align:center;border-radius:var(--r-sm)}
+.b .media{margin:.15rem 0 .2rem;border-radius:12px;overflow:hidden;display:block}
+.b img,.b video{display:block;max-width:100%;max-height:60vh;border-radius:12px}
 .b img{cursor:zoom-in}
-.doc{display:flex;align-items:center;gap:.6rem;padding:.15rem 0}
-.doc .ic{width:38px;height:38px;border-radius:var(--r-sm);background:var(--accent-soft);
-  color:var(--accent);display:grid;place-items:center;flex:0 0 auto}
+.doc{display:flex;align-items:center;gap:.7rem;padding:.15rem 0}
+.doc .ic{width:44px;height:44px;border-radius:12px;background:var(--accent-soft);
+  color:var(--accent-lit);display:grid;place-items:center;flex:0 0 auto}
 .b.out .doc .ic{background:rgba(255,255,255,.18);color:#fff}
-.doc .nm{font-size:.9rem;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.doc .sz{font-size:.75rem;opacity:.7}
+.doc .nm{font-size:.95rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc .sz{font-size:.8rem;opacity:.85}
 
 /* ---------- composer ---------- */
 .comp{
   position:sticky;bottom:0;z-index:10;
-  flex:0 0 auto;display:flex;align-items:flex-end;gap:.4rem;padding:.5rem .6rem;
+  flex:0 0 auto;display:flex;align-items:flex-end;gap:.4rem;padding:.5rem .5rem;
   padding-bottom:calc(.5rem + env(safe-area-inset-bottom));
   background:var(--surface);border-top:1px solid var(--line);
 }
 .comp .field{
-  flex:1;display:flex;align-items:flex-end;background:var(--bg);border:1px solid var(--line);
-  border-radius:22px;padding:.15rem .15rem .15rem .9rem;
+  flex:1;display:flex;align-items:flex-end;background:var(--field);border:1px solid var(--field-line);
+  border-radius:24px;padding:.1rem .15rem .1rem 1rem;min-height:48px;
 }
 .comp textarea{
-  flex:1;border:0;background:none;resize:none;padding:.6rem 0;max-height:8.5rem;
-  font-size:.97rem;line-height:1.35;outline:none;
+  flex:1;border:0;background:none;resize:none;padding:.72rem 0;max-height:8.5rem;
+  font-size:1rem;line-height:1.35;outline:none;
 }
-.send{width:40px;height:40px;border-radius:50%;background:var(--accent);color:var(--accent-ink);
+.comp textarea::placeholder{color:var(--dim)}
+.send{width:48px;height:48px;border-radius:50%;background:var(--accent);color:var(--accent-ink);
   display:grid;place-items:center;flex:0 0 auto}
-.send:disabled{opacity:.35}
-.send svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2.2;
+.send:disabled{opacity:.4}
+.send svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2.2;
   stroke-linecap:round;stroke-linejoin:round}
 
 /* ---------- status strip ---------- */
-.strip{flex:0 0 auto;font-size:.78rem;text-align:center;padding:.35rem;
-  background:var(--danger-soft);color:var(--danger)}
+.strip{flex:0 0 auto;font-size:.85rem;font-weight:600;text-align:center;padding:.45rem;
+  background:var(--danger-soft);color:var(--danger-lit)}
 .strip.hide{display:none}
 
 /* ---------- progress ---------- */
 .prog{flex:0 0 auto;height:3px;background:transparent}
-.prog i{display:block;height:100%;width:0;background:var(--accent);transition:width .15s linear}
+.prog i{display:block;height:100%;width:0;background:var(--accent-lit);transition:width .15s linear}
 
 /* ---------- forms / sheets ---------- */
-.card{background:#242631;border-radius:16px;padding:1rem;box-shadow:0 2px 10px rgba(0,0,0,.35);
+.card{background:var(--surface);border:1px solid var(--bline);border-radius:18px;padding:1rem;
   margin-bottom:1rem}
-.lb{display:block;font-size:.82rem;font-weight:600;color:#aeb3c4;margin:0 0 .35rem}
-.inp{width:100%;background:#12131a;border:1px solid #4a4d5e;border-radius:12px;
-  padding:.7rem .8rem;font-size:.95rem;outline:none}
-.inp:focus{border-color:var(--accent)}
+.lb{display:block;font-size:.88rem;font-weight:650;color:var(--dim);margin:0 0 .4rem}
+.inp{width:100%;background:var(--field);border:1px solid var(--field-line);border-radius:12px;
+  padding:.8rem .85rem;font-size:1rem;outline:none;min-height:48px}
+.inp:focus{border-color:var(--accent-lit)}
+.inp::placeholder{color:var(--dim)}
 select.inp{appearance:none}
-.btn{background:var(--accent);color:var(--accent-ink);border-radius:12px;padding:.75rem 1.1rem;
-  font-weight:600;font-size:.95rem;min-height:46px}
+.btn{background:var(--accent);color:var(--accent-ink);border-radius:14px;padding:.75rem 1.15rem;
+  font-weight:650;font-size:1rem;min-height:48px}
 .btn.sec{background:var(--surface-2);color:var(--text)}
-.btn.warn{background:transparent;color:var(--danger);border:1px solid var(--danger)}
-.btn:disabled{opacity:.4}
+.btn.warn{background:transparent;color:var(--danger-lit);border:1px solid var(--danger)}
+.btn:disabled{opacity:.45}
 .acts{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.9rem}
-.note{font-size:.83rem;color:var(--dim);line-height:1.45;margin:.6rem 0 0}
-.keyval{font-family:var(--mono);font-size:.8rem;word-break:break-all;background:var(--bg);
+.note{font-size:.88rem;color:var(--dim);line-height:1.5;margin:.6rem 0 0}
+.note strong{color:var(--text)}
+.keyval{font-family:var(--mono);font-size:.82rem;word-break:break-all;background:var(--field);
   border:1px solid var(--line);border-radius:12px;padding:.7rem;margin:.4rem 0}
 .fp{font-family:var(--mono);font-size:1.05rem;font-weight:650;letter-spacing:.06em;
-  color:var(--accent);background:var(--accent-soft);border-radius:12px;padding:.6rem;
+  color:var(--accent-lit);background:var(--accent-soft);border-radius:12px;padding:.65rem;
   text-align:center;margin:.4rem 0}
-.fp.sm{font-size:.72rem;font-weight:500;background:none;color:var(--faint);padding:0;
+.fp.sm{font-size:.74rem;font-weight:500;background:none;color:var(--faint);padding:0;
   text-align:left;letter-spacing:.04em;margin:2px 0 0}
-h2.hd{font-size:1.05rem;font-weight:650;margin:0 0 .75rem}
-.empty{text-align:center;color:var(--dim);padding:3rem 1.5rem;font-size:.92rem;line-height:1.5}
-.empty svg{width:44px;height:44px;stroke:var(--faint);fill:none;stroke-width:1.5;
+h2.hd{font-size:1.1rem;font-weight:700;margin:0 0 .75rem}
+.empty{text-align:center;color:var(--dim);padding:3rem 1.5rem;font-size:.98rem;line-height:1.5}
+.empty svg{width:48px;height:48px;stroke:var(--dim);fill:none;stroke-width:1.5;
   margin-bottom:.75rem}
 .hide{display:none!important}
 
+/* ---------- settings menu ---------- */
+.mlab{font-size:.76rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);
+  margin:1.1rem 0 .4rem .3rem}
+.mlab:first-child{margin-top:.2rem}
+.mgrp{background:var(--surface);border:1px solid var(--bline);border-radius:16px;overflow:hidden}
+.mrow{display:flex;align-items:center;gap:.6rem;width:100%;min-height:56px;padding:.4rem .95rem;
+  text-align:left;font-size:1rem;font-weight:600;border-bottom:1px solid var(--line)}
+.mrow:last-child{border-bottom:0}
+.mrow:active{background:var(--surface-2)}
+.mrow .mt{flex:1;min-width:0}
+.mrow .mval{font-size:.88rem;font-weight:500;color:var(--dim);white-space:nowrap}
+.mrow:after{content:'';width:9px;height:9px;flex:0 0 auto;border-right:2px solid var(--dim);
+  border-top:2px solid var(--dim);transform:rotate(45deg);margin-right:.2rem}
+.mburn{display:block;width:100%;min-height:56px;margin-top:1.2rem;border-radius:16px;
+  background:var(--danger-soft);border:1px solid var(--danger);color:var(--danger-lit);
+  font-size:1rem;font-weight:700}
+.seg{display:flex;gap:.4rem}
+.seg button{flex:1;min-height:48px;border-radius:12px;background:var(--surface-2);font-weight:650;font-size:.95rem}
+.seg button.on{background:var(--accent);color:var(--accent-ink)}
+
 /* ---------- location ---------- */
-.loc{display:flex;align-items:center;gap:.6rem;padding:.15rem 0}
-.loc .ic{width:38px;height:38px;border-radius:var(--r-sm);background:var(--accent-soft);
-  color:var(--accent);display:grid;place-items:center;flex:0 0 auto}
+.loc{display:flex;align-items:center;gap:.7rem;padding:.15rem 0}
+.loc .ic{width:44px;height:44px;border-radius:12px;background:var(--accent-soft);
+  color:var(--accent-lit);display:grid;place-items:center;flex:0 0 auto}
 .b.out .loc .ic{background:rgba(255,255,255,.18);color:#fff}
-.loc svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;
+.loc svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.9;
   stroke-linecap:round;stroke-linejoin:round}
-.loc .nm{font-size:.9rem;font-weight:550;display:block}
-.loc .sz{font-size:.75rem;opacity:.7;font-family:var(--mono)}
-.locacts{display:flex;gap:.85rem;margin-top:.35rem;flex-wrap:wrap}
-.locacts a{font-size:.8rem;font-weight:600;color:var(--accent);text-decoration:none}
+.loc .nm{font-size:.95rem;font-weight:600;display:block}
+.loc .sz{font-size:.82rem;opacity:.85;font-family:var(--mono)}
+.locacts{display:flex;gap:1rem;margin-top:.4rem;flex-wrap:wrap}
+.locacts a{font-size:.92rem;font-weight:650;color:var(--accent-lit);text-decoration:none;padding:.35rem 0}
 .b.out .locacts a{color:#fff;text-decoration:underline}
 
 /* ---------- QR ---------- */
 .qrwrap{display:flex;justify-content:center;margin:.7rem 0}
 .qr{border-radius:10px;background:#fff;padding:8px;max-width:100%;height:auto}
 details summary::-webkit-details-marker{display:none}
-details summary{list-style:none}
-details summary:before{content:'▸ ';color:var(--dim)}
+details summary{list-style:none;min-height:44px;display:flex;align-items:center}
+details summary:before{content:'▸ ';color:var(--dim);margin-right:.35rem}
 details[open] summary:before{content:'▾ '}
 
 /* ---------- action sheet ---------- */
-.sheet{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:40;display:flex;
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:40;display:flex;
   align-items:flex-end;justify-content:center}
 .sheet-in{background:var(--surface);width:100%;max-width:38rem;
-  border-radius:18px 18px 0 0;padding:.5rem .5rem calc(.5rem + env(safe-area-inset-bottom));
+  border-radius:20px 20px 0 0;padding:.5rem .5rem calc(.5rem + env(safe-area-inset-bottom));
   box-shadow:var(--shadow)}
-.sheet-in button{display:flex;align-items:center;gap:.8rem;width:100%;text-align:left;
-  padding:.9rem 1rem;border-radius:12px;font-size:.97rem;font-weight:500}
+.sheet-in button{display:flex;align-items:center;gap:.85rem;width:100%;text-align:left;
+  padding:.75rem 1rem;border-radius:14px;font-size:1rem;font-weight:550;min-height:56px}
 .sheet-in button:active{background:var(--surface-2)}
-.sheet-in .ic{width:38px;height:38px;border-radius:50%;background:var(--accent-soft);
-  color:var(--accent);display:grid;place-items:center;flex:0 0 auto}
-.sheet-in .ic svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;
+.sheet-in .ic{width:40px;height:40px;border-radius:50%;background:var(--accent-soft);
+  color:var(--accent-lit);display:grid;place-items:center;flex:0 0 auto}
+.sheet-in .ic svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.9;
   stroke-linecap:round;stroke-linejoin:round}
-.sheet-in .cancel{justify-content:center;color:var(--dim);font-weight:600}
-.sheet-in .red{color:var(--danger)}
-.sheet-in .red .ic{background:var(--danger-soft);color:var(--danger)}
+.sheet-in .cancel{justify-content:center;color:var(--dim);font-weight:650}
+.sheet-in .red{color:var(--danger-lit)}
+.sheet-in .red .ic{background:var(--danger-soft);color:var(--danger-lit)}
 @media (prefers-reduced-motion:no-preference){
   .sheet-in{animation:slideup .2s ease-out}
   @keyframes slideup{from{transform:translateY(100%)}to{transform:none}}
@@ -278,23 +335,23 @@ details[open] summary:before{content:'▾ '}
   z-index:50;padding:1rem}
 .lightbox img{max-width:100%;max-height:90vh;border-radius:8px}
 .lightbox button{position:absolute;top:calc(1rem + env(safe-area-inset-top));right:1rem;color:#fff;
-  font-size:1.6rem;width:44px;height:44px}
+  font-size:1.7rem;width:48px;height:48px}
 
 /* ---------- bubble action menu ---------- */
-.bmenu-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;
+.bmenu-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:60;
   display:flex;align-items:flex-end;justify-content:center}
-.bmenu{width:100%;max-width:420px;background:#242631;border-radius:16px 16px 0 0;
+.bmenu{width:100%;max-width:420px;background:var(--surface);border-radius:20px 20px 0 0;
   padding:.5rem;margin:0 .4rem;box-shadow:0 -4px 24px rgba(0,0,0,.4);
   padding-bottom:calc(.5rem + env(safe-area-inset-bottom))}
-.bmenu-item{display:block;width:100%;text-align:center;padding:1rem;font-size:1rem;
-  color:var(--fg);border-radius:10px}
-.bmenu-item:hover{background:#2f3240}
-.bmenu-item.danger{color:var(--danger)}
+.bmenu-item{display:block;width:100%;text-align:center;padding:1rem;font-size:1rem;font-weight:550;
+  color:var(--text);border-radius:12px;min-height:56px}
+.bmenu-item:hover,.bmenu-item:active{background:var(--surface-2)}
+.bmenu-item.danger{color:var(--danger-lit)}
 
 /* ---------- toast ---------- */
 .toast{position:fixed;left:50%;transform:translateX(-50%);
   bottom:calc(5.5rem + env(safe-area-inset-bottom));background:var(--text);color:var(--bg);
-  padding:.6rem 1rem;border-radius:20px;font-size:.85rem;z-index:60;box-shadow:var(--shadow);
+  padding:.65rem 1.05rem;border-radius:20px;font-size:.92rem;font-weight:550;z-index:60;box-shadow:var(--shadow);
   max-width:88%;text-align:center}
 @media (prefers-reduced-motion:no-preference){
   .toast{animation:rise .18s ease-out}
@@ -302,25 +359,43 @@ details[open] summary:before{content:'▾ '}
   @keyframes rise{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
   @keyframes pop{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 }
+
+/* ---------- burn ---------- */
 #burn{position:relative;overflow:hidden;background:var(--danger);color:#fff;border:1px solid var(--danger);
   touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 #burnfill{position:absolute;inset:0;width:0%;background:rgba(0,0,0,.32);pointer-events:none}
 #burnlab{position:relative;z-index:1}
-#livestrip{display:flex;align-items:center;justify-content:center;gap:.8rem;background:#7a1f18;color:#fff;padding:.45rem .8rem;font-size:.85rem}
+
+/* ---------- live location ---------- */
+/* Amber, not red: red is kept for SOS and for things that destroy data. */
+#livestrip{display:flex;align-items:center;justify-content:center;gap:.8rem;background:var(--amber);
+  color:var(--amber-ink);padding:.4rem .8rem;font-size:.92rem;font-weight:650}
 #livestrip.hide{display:none}
-#livestrip button{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.55);border-radius:6px;padding:.15rem .8rem;font-size:.85rem}
+#livestrip button{background:var(--amber-ink);color:var(--amber);border-radius:12px;
+  padding:0 1.1rem;min-height:44px;font-size:.95rem;font-weight:750;flex:0 0 auto}
 #livebar{padding:.6rem .8rem 0}
 #livebar.hide{display:none}
-.livebtn{width:100%;text-align:left;background:var(--accent-soft);border:1px solid var(--danger);border-radius:10px;padding:.55rem .8rem;color:var(--text);font-size:.9rem}
-.livestale{opacity:.55}
-.livebig{font-size:1.55rem;font-weight:700;margin:.25rem 0;line-height:1.15}
-.liveage{font-size:.85rem;opacity:.85;margin-top:.2rem}
-.liveage.old{color:var(--danger);opacity:1}
-.cmp{position:relative;width:96px;height:96px;margin:.35rem auto .1rem}
-.cmp-ring{position:absolute;inset:0;border:2px solid var(--danger);border-radius:50%;opacity:.45}
+.livebtn{width:100%;text-align:left;background:var(--amber-soft);border:1px solid var(--amber-lit);
+  border-radius:14px;padding:.6rem .9rem;color:var(--text);font-size:.98rem;font-weight:600;min-height:52px}
+.livestale{opacity:.6}
+.livebig{font-size:2.5rem;font-weight:800;letter-spacing:-.02em;margin:.35rem 0;line-height:1.1}
+.liveage{font-size:.95rem;font-weight:600;color:var(--dim);margin-top:.3rem}
+.liveage.old{color:var(--danger-lit)}
+.cmp{position:relative;width:min(58vw,230px);height:min(58vw,230px);margin:.5rem auto .3rem}
+.cmp-ring{position:absolute;inset:0;border:2px solid var(--dim);border-radius:50%;opacity:.6}
 .cmp-a{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transition:transform .12s linear;will-change:transform}
-.cmp-a svg{width:58%;height:58%}
-.cmp-f,.cmp-n{position:absolute;top:-4px;left:50%;transform:translateX(-50%);font-size:.72rem;font-weight:700;opacity:.85}
+.cmp-a svg{width:62%;height:62%}
+.cmp-a svg path{fill:var(--amber-lit)}
+.cmp-f,.cmp-n{position:absolute;top:4px;left:50%;transform:translateX(-50%);font-size:.85rem;font-weight:750;color:var(--dim)}
+
+/* ---------- wider screens (a tablet on a dashboard) ---------- */
+@media (min-width:700px){
+  .pad,.rows,#thread,.sheet-in{max-width:44rem}
+  .livebig{font-size:4rem}
+  .cmp{width:320px;height:320px}
+  .gridref{font-size:2.6rem}
+  .liveage{font-size:1.15rem}
+}
 </style>
 </head>
 <body>
@@ -11266,6 +11341,23 @@ const socks = new Map();
 
 const VAULT = 'courier.vault';
 const LOCKMODE = 'courier.lockmode';   // 'numeric'|'text' — which keyboard to show, NOT the secret
+/* Appearance. 'auto' follows the phone's light/dark setting; 'night' and 'day'
+   force one. Looks only — the value is not secret and nothing else reads it. */
+const THEME = 'courier.theme';
+const themePref = () => { let t = null; try { t = localStorage.getItem(THEME); } catch {}
+  return (t === 'night' || t === 'day') ? t : 'auto'; };
+function applyTheme(){
+  const t = themePref(), r = document.documentElement;
+  if (t === 'auto') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', t);
+  let light = t === 'day';
+  try { if (t === 'auto') light = matchMedia('(prefers-color-scheme: light)').matches; } catch {}
+  document.querySelectorAll('meta[name="theme-color"]').forEach(m =>
+    m.setAttribute('content', light ? '#f3f5f2' : '#0e1211'));
+}
+applyTheme();
+try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme); } catch {}
+/* Which Settings group is open (null = the menu), kept across re-renders. */
+let settingsSec = null, settingsShow = null;
 let vaultKey = null;          // held in memory only, never written anywhere
 let hiddenSince = 0;
 const AUTOLOCK_MS = 5 * 60 * 1000;
@@ -12657,7 +12749,7 @@ function bubbleEl(m, prev){
     wrap.style.setProperty('--who', col);
     if (!grouped) {
       const w = document.createElement('div'); w.className='who';
-      w.textContent = m.from; w.style.color = col;
+      w.textContent = m.from;
       wrap.appendChild(w);
     }
   }
@@ -13099,7 +13191,7 @@ async function renderSOS(){
           : e && e.code === 3
           ? 'Timed out getting a fix. On GrapheneOS without network location this is GPS-only \u2014 it can need open sky and 30+ seconds from cold. Try outdoors, or enable Settings \u2192 Location \u2192 Network location.'
           : 'Position unavailable \u2014 no GPS fix could be made here.';
-        $('#fixbox').innerHTML = `<p class="note" style="margin-top:0;color:var(--danger)">
+        $('#fixbox').innerHTML = `<p class="note" style="margin-top:0;color:var(--danger-lit)">
           ${reason} SEND SOS still works \u2014 the message will say no position was available.</p>`;
       }
     }
@@ -13318,7 +13410,7 @@ async function renderShareLoc(){
           ? 'Timed out \u2014 GPS-only phones can need open sky and 30+ seconds from cold.'
           : 'Position unavailable \u2014 no fix could be made here.';
         const box = $('#fixbox');
-        if (box) box.innerHTML = `<p class="note" style="margin-top:0;color:var(--danger)">${reason} The buttons stay live \u2014 they will warn you until a position arrives.</p>`;
+        if (box) box.innerHTML = `<p class="note" style="margin-top:0;color:var(--danger-lit)">${reason} The buttons stay live \u2014 they will warn you until a position arrives.</p>`;
       }
     }
   };
@@ -13542,11 +13634,34 @@ async function importKeysData(bytes, pass){
 function renderSettings(){
   view='form'; hideFab();
   chrome({ back: convs.length>0 || (!!me && !!relay), gear:false, title:'Settings' });
-  $('#main').innerHTML = `<div class="pad">
+  $('#main').innerHTML = `<div class="pad" id="setpad">
     ${(!me||!relay)?`<div class="card" style="background:var(--accent-soft)">
       <p class="note" style="margin:0;color:var(--text)"><strong>Nearly there.</strong>
       Add your name and the address of your relay to start.</p></div>`:''}
-    <div class="card">
+    <div id="setmenu">
+      <div class="mlab">This phone</div>
+      <div class="mgrp">
+        <button class="mrow" data-go="phone"><span class="mt">Name and relay</span></button>
+        <button class="mrow" data-go="look"><span class="mt">Appearance and maps</span></button>
+        <button class="mrow" data-go="msgs"><span class="mt">Messages and photos</span></button>
+      </div>
+      <div class="mlab">Security</div>
+      <div class="mgrp">
+        <button class="mrow" data-go="lock"><span class="mt">App lock</span><span class="mval" id="mlock"></span></button>
+        <button class="mrow" data-go="backup"><span class="mt">Key backup</span></button>
+      </div>
+      <div class="mlab">Alerts</div>
+      <div class="mgrp">
+        <button class="mrow" data-go="notify"><span class="mt">Notifications</span></button>
+        <button class="mrow" data-go="sos"><span class="mt">SOS contacts and key</span></button>
+      </div>
+      <div class="mlab">This copy</div>
+      <div class="mgrp">
+        <button class="mrow" data-go="build"><span class="mt">This build</span></button>
+      </div>
+      <button class="mburn" data-go="burn">Burn everything</button>
+    </div>
+    <div class="card" data-sec="phone">
       <label class="lb" for="sme">Your name</label>
       <input class="inp" id="sme" value="${esc(me)}" placeholder="Shown to people you message" autocomplete="off">
       <label class="lb" for="srelay" style="margin-top:1rem">Relay address</label>
@@ -13563,7 +13678,7 @@ function renderSettings(){
       days. It cannot read any of it. It does see which devices talk to each other, when, and how much.</p>
       <div class="acts"><button class="btn" id="sv">Save</button></div>
     </div>
-    <div class="card">
+    <div class="card" data-sec="lock">
       <h2 class="hd">App lock</h2>
       <p class="note" style="margin-top:0" id="pinstate"></p>
       <div class="acts" id="pinacts"></div>
@@ -13576,7 +13691,17 @@ function renderSettings(){
       glancing at your unlocked phone, but a 6-digit PIN can be cracked in seconds by anyone who copies
       the data off a lost or seized device — so don't rely on it for real protection.</p>
     </div>
-    <div class="card">
+    <div class="card" data-sec="look">
+      <label class="lb">Appearance</label>
+      <div class="seg" id="thseg">
+        <button data-th="auto">Auto</button>
+        <button data-th="night">Night</button>
+        <button data-th="day">Daylight</button>
+      </div>
+      <p class="note">Daylight is a light, high-contrast look for reading outdoors. Auto follows
+      this phone's own light or dark setting.</p>
+    </div>
+    <div class="card" data-sec="look">
       <label class="lb">Maps</label>
       <p class="note" style="margin-top:0">Which map opens when you tap a shared position \u2014 also used
       for the map link inside the texts you send.</p>
@@ -13591,7 +13716,7 @@ function renderSettings(){
       \u201cAsk each time\u201d are the private choices. \u201cAsk each time\u201d doesn\u2019t work on
       iPhones, so texts you send fall back to a web link.</p>
     </div>
-    <div class="card">
+    <div class="card" data-sec="msgs">
       <label class="lb">Photos</label>
       <label class="pick" style="margin-top:.2rem">
         <input type="checkbox" id="striploc"> 
@@ -13601,7 +13726,7 @@ function renderSettings(){
       send can't give away where it was taken if it's later forwarded on. Slightly re-compresses the
       image. <strong>Photos only</strong> — videos still carry their metadata.</p>
     </div>
-    <div class="card">
+    <div class="card" data-sec="notify">
       <label class="lb">Notifications</label>
       <p class="note" style="margin-top:0">One-time setup, then every conversation \u2014 current and future \u2014
       pings this phone. The ping says only \u201cnew message\u201d: never the content, never the sender.</p>
@@ -13620,7 +13745,7 @@ function renderSettings(){
         conversation it belongs to.</p>
       </details>
     </div>
-    <div class="card">
+    <div class="card" data-sec="sos">
       <label class="lb">SOS text contacts</label>
       <p class="note" style="margin-top:0">Numbers the SOS and location screens can text \u2014 for example a
       deer manager or landowner for this week's ground. Add before a trip, remove after. Saved on this
@@ -13630,14 +13755,14 @@ function renderSettings(){
       <input class="inp" id="scp" type="tel" inputmode="tel" placeholder="Phone number" autocomplete="off" style="margin-top:.5rem">
       <div class="acts"><button class="btn sec" id="scadd">Add contact</button></div>
     </div>
-    <div class="card">
+    <div class="card" data-sec="sos">
       <label class="lb">SOS-only key</label>
       <p class="note" style="margin-top:0">A separate conversation used for nothing but SOS. Its key is kept
       <strong>outside the app lock</strong>, so the SOS button on the lock screen can alert your group in
       Nightjar without you unlocking first.</p>
       <div id="skbox"></div>
     </div>
-    <div class="card">
+    <div class="card" data-sec="backup">
       <h2 class="hd">Key backup</h2>
       <p class="note" style="margin-top:0">Keys live only in this browser. If the phone is lost or the
       browser clears its storage, they are gone and every conversation is lost with them. A backup
@@ -13650,7 +13775,7 @@ function renderSettings(){
       </div>
       <input type="file" id="keyfile" accept=".crr" class="hide">
     </div>
-    <div class="card">
+    <div class="card" data-sec="msgs">
       <label class="lb" for="skeep">Keep messages for</label>
       <select class="inp" id="skeep">
         <option value="7">7 days</option>
@@ -13664,9 +13789,9 @@ function renderSettings(){
       already decrypted and stored, so this is the setting that actually limits what a lost phone gives away.</p>
       <div class="acts"><button class="btn warn" id="wipe">Delete all messages now</button></div>
     </div>
-    <div class="card">
+    <div class="card" data-sec="build">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>c90be4b37700</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>ae7e732bd31f</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -13675,13 +13800,13 @@ function renderSettings(){
       <p class="note">Check the copy with <code>sha256sum</code> against the hash published alongside it.
       Do that outside this app: a page that had been tampered with would happily tell you it hadn't.</p>
     </div>
-    <div class="card">
+    <div class="card" data-sec="build">
       <h2 class="hd">What this doesn't protect you from</h2>
       <p class="note" style="margin-top:0">One key opens every message in a conversation, past and future —
       if it leaks, start a new one. Anything decrypted on the other person's device is theirs.
       And this is a web page: whoever controls where it's hosted could serve a different version.</p>
     </div>
-    <div class="card">
+    <div class="card" data-sec="burn">
       <h2 class="hd">Burn everything</h2>
       <p class="note" style="margin-top:0">Deletes all Nightjar messages, conversations, keys and settings
       from this device. It cannot be undone, and without a key backup there is no way back in —
@@ -13693,7 +13818,32 @@ function renderSettings(){
       until the space is reused. For disk-level certainty, wipe the device itself.</p>
       <div class="acts"><button class="btn" id="burn"><span id="burnfill"></span><span id="burnlab">Burn everything</span></button></div>
     </div></div>`;
+  /* Settings opens as a short menu; each row shows one group of cards. Every
+     card stays in the page (only hidden), so all the wiring below is unchanged. */
+  const secNames = { phone:'Name and relay', look:'Appearance and maps', msgs:'Messages and photos',
+    lock:'App lock', backup:'Key backup', notify:'Notifications', sos:'SOS contacts and key',
+    build:'This build', burn:'Burn everything' };
+  const showSec = (sec) => {
+    settingsSec = (sec && secNames[sec]) ? sec : null;
+    $('#setmenu').classList.toggle('hide', !!settingsSec);
+    document.querySelectorAll('#setpad .card[data-sec]').forEach(el =>
+      el.classList.toggle('hide', el.dataset.sec !== settingsSec));
+    const tn = $('#title').firstChild;
+    if (tn && tn.nodeType === 3) tn.textContent = settingsSec ? secNames[settingsSec] : 'Settings';
+    $('#back').classList.toggle('hide', !settingsSec && !(convs.length>0 || (!!me && !!relay)));
+    window.scrollTo(0, 0);
+  };
+  settingsShow = showSec;
+  document.querySelectorAll('#setmenu [data-go]').forEach(b => b.onclick = () => showSec(b.dataset.go));
+  showSec(settingsSec || ((!me || !relay) ? 'phone' : null));
+  const paintTh = () => { const t = themePref();
+    document.querySelectorAll('#thseg [data-th]').forEach(b => b.classList.toggle('on', b.dataset.th === t)); };
+  document.querySelectorAll('#thseg [data-th]').forEach(b => b.onclick = () => {
+    try { localStorage.setItem(THEME, b.dataset.th); } catch {}
+    applyTheme(); paintTh(); });
+  paintTh();
   const hasPin = !!localStorage.getItem(VAULT);
+  $('#mlock').textContent = hasPin ? 'On' : 'Off';
   $('#pinstate').textContent = hasPin
     ? 'App lock is on. Keys are encrypted on this device.'
     : 'No lock. Conversation keys are stored unencrypted — anyone who unlocks this device can read them.';
@@ -14075,9 +14225,10 @@ $('#importer').onchange = async () => {
 $('#search').addEventListener('input', (e) => { query = e.target.value; renderRows(); });
 $('#compose').onclick = renderNew;
 $('#sos').onclick = renderSOS;
-$('#back').onclick = () => view==='thread' ? renderList() : (openId ? openThread(openId) : renderList());
+$('#back').onclick = () => (view==='form' && settingsSec && settingsShow && $('#setmenu')) ? settingsShow(null)
+  : view==='thread' ? renderList() : (openId ? openThread(openId) : renderList());
 $('#info').onclick = renderInfo;
-$('#gear').onclick = renderSettings;
+$('#gear').onclick = () => { settingsSec = null; renderSettings(); };
 
 /* ---------- start ---------- */
 function noCrypto(){
