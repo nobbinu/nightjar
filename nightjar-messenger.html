@@ -20,14 +20,14 @@
    surface and are picked to pass 4.5:1 in both themes. */
 :root{
   color-scheme:dark;
-  --bg:#0e1211; --surface:#181d1b; --surface-2:#212725; --line:#2f3734; --bline:transparent;
+  --bg:#0e1211; --surface:#181d1b; --surface-2:#212725; --line:#2f3734; --bline:#222a27;
   --text:#f2f5f3; --fg:#f2f5f3; --dim:#a9b3ae; --faint:#98a39e;
   --accent:#1f7a6c; --accent-ink:#ffffff; --accent-soft:#143029; --accent-lit:#5fd0bd;
   --danger:#cf3b30; --danger-soft:#2a1210; --danger-lit:#ff9d94; --ok:#4fd08a;
   --amber:#f0b23e; --amber-ink:#1a1407; --amber-soft:#2a2210; --amber-lit:#f0b23e;
   --in:#181d1b; --out:#1c6b5f; --out-ft:#d6efe9;
   --field:#0e1211; --field-line:#48534e;
-  --r:18px; --r-sm:8px;
+  --r:18px; --r-sm:8px; --rc:16px; --rb:12px;
   --shadow:0 2px 10px rgba(0,0,0,.35);
   --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;
   --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
@@ -72,7 +72,7 @@ code{font-family:var(--mono);font-size:.92em}
   position:sticky;top:0;z-index:10;
   flex:0 0 auto;display:flex;align-items:center;gap:.35rem;
   padding:calc(.5rem + env(safe-area-inset-top)) .5rem .5rem;
-  background:var(--bg);
+  background:var(--bg);border-bottom:1px solid var(--bline);
 }
 .bar.big{padding-top:calc(1rem + env(safe-area-inset-top));padding-left:1rem;padding-bottom:.35rem}
 .bar h1{font-size:1.15rem;font-weight:700;margin:0;flex:0 1 auto;min-width:0;letter-spacing:-.01em;
@@ -94,7 +94,7 @@ code{font-family:var(--mono);font-size:.92em}
 .rgrp{margin-left:auto;display:flex;align-items:center;gap:.15rem;flex:0 0 auto}
 .sosbtn:not(.hide) + .rgrp{margin-left:.25rem}
 .sosbtn:active{transform:scale(.97)}
-.fixbig{font-family:var(--mono);font-size:1.35rem;font-weight:700;text-align:center;margin:.2rem 0}
+.fixbig{font-family:var(--mono);font-size:1.35rem;font-weight:700;text-align:center;margin:.2rem 0;font-variant-numeric:tabular-nums}
 .gridref{font-family:var(--mono);font-size:1.9rem;font-weight:750;text-align:center;
   color:var(--text);letter-spacing:.03em;margin:.1rem 0 .3rem}
 .acc{text-align:center;font-size:.95rem;font-weight:650;color:var(--ok)}
@@ -122,7 +122,7 @@ code{font-family:var(--mono);font-size:.92em}
 
 /* ---------- search ---------- */
 .searchwrap{flex:0 0 auto;padding:.35rem 1rem .75rem;background:var(--bg)}
-.search{width:100%;background:var(--surface);border:1px solid var(--bline);border-radius:14px;
+.search{width:100%;background:var(--surface);border:1px solid var(--bline);border-radius:var(--rb);
   padding:.8rem .95rem;font-size:1rem;color:var(--text);outline:none;min-height:48px}
 .search::placeholder{color:var(--dim)}
 
@@ -131,8 +131,8 @@ code{font-family:var(--mono);font-size:.92em}
    initials, so white lettering stays readable on the lighter hues. */
 .av{
   width:52px;height:52px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;
-  color:#fff;font-weight:700;font-size:1.05rem;letter-spacing:.01em;
-  box-shadow:inset 0 0 0 99px rgba(0,0,0,.28);
+  color:var(--text);font-weight:700;font-size:1.05rem;letter-spacing:.01em;
+  box-shadow:inset 0 0 0 99px color-mix(in srgb,var(--surface) 72%,transparent);
 }
 .av.sm{width:40px;height:40px;font-size:.85rem}
 
@@ -143,7 +143,7 @@ main{flex:1 1 auto;overflow:visible}
 /* ---------- conversation list ---------- */
 .rows{max-width:38rem;margin:0 auto;padding:.25rem 0 6.5rem}
 .row{
-  display:flex;align-items:center;gap:.9rem;width:100%;text-align:left;padding:.7rem 1rem;min-height:76px;
+  display:flex;align-items:center;gap:.9rem;width:100%;text-align:left;padding:.65rem 1rem;min-height:68px;
 }
 .row:active{background:var(--surface)}
 .row .mid{flex:1;min-width:0}
@@ -152,12 +152,12 @@ main{flex:1 1 auto;overflow:visible}
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .prev{font-size:.95rem;color:var(--dim);overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;margin-top:2px}
-.row .prev b{color:var(--dim);font-weight:400}
+.row .prev b{color:var(--text);font-weight:600}
 .row .right{display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;flex:0 0 auto;
   padding-left:.2rem}
-.time{font-size:.82rem;color:var(--dim);white-space:nowrap}
+.time{font-size:.82rem;color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums}
 .time.new{color:var(--amber-lit);font-weight:650}
-.pill{background:var(--amber);color:var(--amber-ink);font-size:.82rem;font-weight:750;
+.pill{background:var(--accent);color:var(--accent-ink);font-size:.82rem;font-weight:750;
   min-width:26px;height:26px;padding:0 8px;border-radius:13px;display:grid;place-items:center}
 .dot{width:11px;height:11px;border-radius:50%;background:var(--ok);margin:.4rem 0}
 .tag{font-size:.68rem;font-weight:700;color:var(--dim);border:1px solid var(--line);
@@ -168,7 +168,7 @@ main{flex:1 1 auto;overflow:visible}
 .fab{
   position:fixed;right:1rem;bottom:calc(1.4rem + env(safe-area-inset-bottom));
   height:56px;padding:0 1.35rem 0 1.1rem;border-radius:28px;background:var(--accent);color:var(--accent-ink);
-  box-shadow:0 6px 18px rgba(0,0,0,.35);display:flex;align-items:center;gap:.5rem;z-index:5;
+  box-shadow:0 6px 18px rgba(0,0,0,.22);display:flex;align-items:center;gap:.5rem;z-index:5;
   font-size:1rem;font-weight:700;
 }
 .fab svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round}
@@ -192,7 +192,7 @@ main{flex:1 1 auto;overflow:visible}
    toward the text colour so it reads on a dark bubble and on a white one. */
 .who{font-size:.82rem;font-weight:700;margin-bottom:.15rem;color:var(--who,var(--accent-lit));
   color:color-mix(in srgb,var(--who,var(--accent-lit)) 58%,var(--text))}
-.b .ft{font-size:.75rem;color:var(--dim);margin-top:.2rem;text-align:right;
+.b .ft{font-size:.75rem;color:var(--dim);margin-top:.2rem;text-align:right;font-variant-numeric:tabular-nums;
   display:flex;gap:.3rem;justify-content:flex-end;align-items:center}
 .b.out .ft{color:var(--out-ft)}
 .b.bad{background:var(--danger-soft);color:var(--danger-lit);align-self:center;max-width:92%;
@@ -215,9 +215,10 @@ main{flex:1 1 auto;overflow:visible}
   background:var(--surface);border-top:1px solid var(--line);
 }
 .comp .field{
-  flex:1;display:flex;align-items:flex-end;background:var(--field);border:1px solid var(--field-line);
+  flex:1;display:flex;align-items:flex-end;background:var(--field);border:1px solid var(--line);
   border-radius:24px;padding:.1rem .15rem .1rem 1rem;min-height:48px;
 }
+.comp .field:focus-within{border-color:var(--accent-lit)}
 .comp textarea{
   flex:1;border:0;background:none;resize:none;padding:.72rem 0;max-height:8.5rem;
   font-size:1rem;line-height:1.35;outline:none;
@@ -231,7 +232,7 @@ main{flex:1 1 auto;overflow:visible}
 
 /* ---------- status strip ---------- */
 .strip{flex:0 0 auto;font-size:.85rem;font-weight:600;text-align:center;padding:.45rem;
-  background:var(--danger-soft);color:var(--danger-lit)}
+  background:var(--amber-soft);color:var(--amber-lit)}
 .strip.hide{display:none}
 
 /* ---------- progress ---------- */
@@ -239,15 +240,15 @@ main{flex:1 1 auto;overflow:visible}
 .prog i{display:block;height:100%;width:0;background:var(--accent-lit);transition:width .15s linear}
 
 /* ---------- forms / sheets ---------- */
-.card{background:var(--surface);border:1px solid var(--bline);border-radius:18px;padding:1rem;
+.card{background:var(--surface);border:1px solid var(--bline);border-radius:var(--rc);padding:1rem;
   margin-bottom:1rem}
 .lb{display:block;font-size:.88rem;font-weight:650;color:var(--dim);margin:0 0 .4rem}
-.inp{width:100%;background:var(--field);border:1px solid var(--field-line);border-radius:12px;
+.inp{width:100%;background:var(--field);border:1px solid var(--field-line);border-radius:var(--rb);
   padding:.8rem .85rem;font-size:1rem;outline:none;min-height:48px}
 .inp:focus{border-color:var(--accent-lit)}
 .inp::placeholder{color:var(--dim)}
 select.inp{appearance:none}
-.btn{background:var(--accent);color:var(--accent-ink);border-radius:14px;padding:.75rem 1.15rem;
+.btn{background:var(--accent);color:var(--accent-ink);border-radius:var(--rb);padding:.75rem 1.15rem;
   font-weight:650;font-size:1rem;min-height:48px}
 .btn.sec{background:var(--surface-2);color:var(--text)}
 .btn.warn{background:transparent;color:var(--danger-lit);border:1px solid var(--danger)}
@@ -272,7 +273,7 @@ h2.hd{font-size:1.1rem;font-weight:700;margin:0 0 .75rem}
 .mlab{font-size:.76rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);
   margin:1.1rem 0 .4rem .3rem}
 .mlab:first-child{margin-top:.2rem}
-.mgrp{background:var(--surface);border:1px solid var(--bline);border-radius:16px;overflow:hidden}
+.mgrp{background:var(--surface);border:1px solid var(--bline);border-radius:var(--rc);overflow:hidden}
 .mrow{display:flex;align-items:center;gap:.6rem;width:100%;min-height:56px;padding:.4rem .95rem;
   text-align:left;font-size:1rem;font-weight:600;border-bottom:1px solid var(--line)}
 .mrow:last-child{border-bottom:0}
@@ -12628,8 +12629,7 @@ function renderList(){
         ${avatar(c.id, c.name)}
         <div class="mid">
           <div class="nm"><span>${esc(c.name)}</span>${c.kind==='group'?'<span class="tag">group</span>':''}</div>
-          <div class="prev">${esc(c.last || 'No messages yet')}</div>
-          <div class="fp sm">${esc(c.fp)}</div>
+          <div class="prev">${c.kind==='group'&&c.lastDir==='in'&&c.lastFrom?'<b>'+esc(c.lastFrom)+':</b> ':''}${esc(c.last || 'No messages yet')}</div>
         </div>
         <div class="right">
           ${c.lastTs?`<span class="time">${when(c.lastTs)}</span>`:''}
@@ -13791,7 +13791,7 @@ function renderSettings(){
     </div>
     <div class="card" data-sec="build">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>ae7e732bd31f</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>701aa4481b12</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
