@@ -12649,6 +12649,13 @@ const voiceType = (() => {
   return null;
 })();
 const voiceSupported = !!voiceType && window.isSecureContext;
+function voiceWhyNot(){
+  if (!window.isSecureContext) return 'Voice needs the https version of Nightjar';
+  if (typeof MediaRecorder === 'undefined') return 'This browser has no audio recorder (MediaRecorder missing)';
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return 'This browser gives pages no microphone access (mediaDevices missing)';
+  if (!voiceType) return 'This browser can\u2019t record in any format Nightjar sends';
+  return 'Voice recording unavailable here';
+}
 const isVoice = (m) => !!(m && m.type && m.type.startsWith('audio/') && /^voice\./.test(m.name||''));
 const attachLabel = (m) => isVoice(m) ? 'Voice message' : (m.name || 'Attachment');
 const mmss = (s) => { s = Math.max(0, Math.round(s||0)); return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); };
@@ -12722,6 +12729,7 @@ async function voiceFinish(mine){
     if (e.button !== undefined && e.button !== 0) return;
     const c = conv(openId); if (!c) return;
     e.preventDefault();
+    if (!voiceSupported) { toast(voiceWhyNot()); return; }
     try { mic.setPointerCapture(e.pointerId); } catch {}
     voiceStart(c, e.clientX);
   });
@@ -14027,7 +14035,7 @@ function renderSettings(){
     </div>
     <div class="card" data-sec="build">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>c9317538a633</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>5b602af3b549</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -14305,7 +14313,7 @@ entry.addEventListener('input', () => {
 function swapSendMic(){
   const has = !!entry.value.trim();
   $('#send').classList.toggle('hide', !has);
-  $('#mic').classList.toggle('hide', has || !voiceSupported);
+  $('#mic').classList.toggle('hide', has);   // always offered; a tap explains if this browser can't record
 }
 const coarse = matchMedia('(pointer:coarse)').matches;
 swapSendMic();
