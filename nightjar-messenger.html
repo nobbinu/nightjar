@@ -12350,6 +12350,7 @@ async function connect(c){
       const m = JSON.parse(ev.data);
       if (m.t==='presence') { s.peers = Math.max(0, m.n-1); status(); if (view==='list') renderList(); }
       if (m.t==='delivered') s.lastDelivered = m.n;
+      if (m.t==='slow') s.slowAt = Date.now();   // relay flood guard dropped a frame from us
       return;                                   // frames render as they decrypt
     }
     const tagged = readSeq(new Uint8Array(ev.data));
@@ -12473,6 +12474,7 @@ async function transmit(c, reader, meta, local, opts={}){
   const fill = $('#progfill');
   const big = reader.size > 512*1024;
   s.lastDelivered = null;
+  const t0 = Date.now();
   /* Stream: each sealed chunk is framed and sent as it is produced, so memory
      use stays at one chunk regardless of file size. Frame headers use a shared
      message id with a running sequence; the total is set at the end via a
@@ -12499,8 +12501,10 @@ async function transmit(c, reader, meta, local, opts={}){
       const u32=(x)=>[ (x>>>24)&255,(x>>>16)&255,(x>>>8)&255,x&255 ];
       fbuf.set(u32(sent), 16); fbuf.set(u32(total), 20);
       fbuf.set(slice, FRAME_HEADER);
+      if (opts.paced) await relayBudget(s, fbuf.length);
+      if (!s.ws || s.ws.readyState !== 1) throw new Error('DISCONNECTED');
       while (s.ws.bufferedAmount > 4*1024*1024) await new Promise(r=>setTimeout(r,40));
-      s.ws.send(fbuf); sent++;
+      s.ws.send(fbuf); sent++; relayLog(s).push([Date.now(), fbuf.length]);
       off += slice.length;
     }
     buf = buf.subarray(off).slice();
@@ -12513,10 +12517,13 @@ async function transmit(c, reader, meta, local, opts={}){
   await push(new Uint8Array(0), true);           // flush the tail
   if (sent !== total) console.error('frame count drift', sent, total);
   fill.style.width = '0';
+  const dropped = s.slowAt && s.slowAt >= t0;
+  if (dropped && local) { local.failed = true; toast('Relay refused it \u2014 too much sent at once. Not delivered, try again'); }
   if (opts.ephemeral) return true;   // live updates: sent and gone — no record, no bubble
   if (opts.silent) return true;      // control frames: queued for offline members, no local record
-  if (meta.k !== 'ntfy') notifyPeers(c, meta.k);   // members' phones hear about it, sender's doesn't
   await new Promise(r=>setTimeout(r,120));
+  if (!local.failed && s.slowAt && s.slowAt >= t0) { local.failed = true; toast('Relay refused it \u2014 too much sent at once. Not delivered, try again'); }
+  if (meta.k !== 'ntfy' && !local.failed) notifyPeers(c, meta.k);   // members' phones hear about it, sender's doesn't
   local.delivered = s.lastDelivered;
   await put(local);
   c.last = local.kind==='text' ? local.text
@@ -12532,37 +12539,70 @@ async function sendText(c, text){
                   kind:'text', text, size:data.length };
   await transmit(c, bytesReader(data), { k:'text', s:data.length, f:me, ts:local.ts, mid:local.id }, local);
 }
-/* Re-encode a photo so the saved bytes carry no EXIF — no GPS, no timestamp,
-   no device. Canvas output contains only pixels. Images only; anything else
-   (video, documents) passes through untouched, since video metadata cannot be
-   cheaply stripped in the browser and must not be silently assumed clean. */
+/* The relay's flood guard drops anything past 4 MB per minute from one socket,
+   so a file send is paced to stay under RELAY_BUDGET, leaving headroom so a
+   text or SOS sent straight after is never the frame that gets dropped. */
+const RELAY_BUDGET = 3 * 1024 * 1024;
+function relayLog(s){
+  const now = Date.now();
+  s.txlog = (s.txlog || []).filter(e => now - e[0] < 61000);
+  return s.txlog;
+}
+async function relayBudget(s, n){
+  for (;;){
+    const used = relayLog(s).reduce((a, e) => a + e[1], 0);
+    if (used + n <= RELAY_BUDGET) return;
+    if (!s.ws || s.ws.readyState !== 1) throw new Error('DISCONNECTED');
+    await new Promise(r => setTimeout(r, 500));
+  }
+}
+/* Prepare a photo for sending. Phone cameras now produce 5-10 MB files, so
+   any photo over PHOTO_MAX_BYTES (or any photo at all when location stripping
+   is on) is redrawn at no more than PHOTO_MAX_SIDE px on its longest side.
+   Redrawing also drops EXIF: no GPS, no timestamp, no device. Keeping the
+   canvas at 2048 px also stays inside iOS Safari's canvas size limit, which
+   full-size 24 MP photos exceed. Video and documents pass through untouched:
+   their metadata cannot be cheaply stripped and must not be assumed clean.
+   Returns null when a too-big photo cannot be shrunk: better not sent than
+   sent knowing the relay will drop it. */
+const PHOTO_MAX_SIDE = 2048, PHOTO_MAX_BYTES = 3 * 1024 * 1024;
+const canvasBlob = (cv, type, q) => new Promise(res => cv.toBlob(res, type, q));
 async function stripPhotoLocation(file){
-  if (!stripLoc) return file;
   if (!file.type || !file.type.startsWith('image/')) return file;   // not a photo
   if (file.type === 'image/gif') return file;                        // would lose animation
+  const big = file.size > PHOTO_MAX_BYTES;
+  if (!stripLoc && !big) return file;
   try {
     const bmp = await createImageBitmap(file);
+    const sc = Math.min(1, PHOTO_MAX_SIDE / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * sc)), h = Math.max(1, Math.round(bmp.height * sc));
     const canvas = document.createElement('canvas');
-    canvas.width = bmp.width; canvas.height = bmp.height;
-    canvas.getContext('2d').drawImage(bmp, 0, 0);
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('NO_CANVAS');
+    ctx.drawImage(bmp, 0, 0, w, h);
     bmp.close && bmp.close();
-    const type = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-    const blob = await new Promise((res) => canvas.toBlob(res, type, 0.92));
-    if (!blob) { toast('Couldn\u2019t remove location \u2014 sent original photo'); return file; }
-    // keep a sensible name, drop any original that might encode date/place
+    const type = (file.type === 'image/png' && sc === 1 && !big) ? 'image/png' : 'image/jpeg';
+    let blob = await canvasBlob(canvas, type, 0.85);
+    if (blob && type === 'image/jpeg' && blob.size > PHOTO_MAX_BYTES) blob = await canvasBlob(canvas, type, 0.7);
+    if (!blob || blob.size > PHOTO_MAX_BYTES * 2) throw new Error('NO_BLOB');
+    if (!stripLoc) toast('Photo shrunk to send — its original data was removed');
     const ext = type === 'image/png' ? 'png' : 'jpg';
     return new File([blob], 'photo.' + ext, { type });
   } catch {
-    toast('Couldn\u2019t remove location \u2014 sent original photo');
-    return file;                                                     // any error: send original
+    if (big) { toast('Couldn’t shrink this photo — not sent'); return null; }
+    toast('Couldn’t remove location — sent original photo');
+    return file;                                                     // small photo: send original
   }
 }
 
 async function sendFile(c, file){
+  if (!file) return;
   const local = { id:crypto.randomUUID(), conv:c.id, dir:'out', ts:Date.now(), from:me,
                   kind:'file', name:file.name, type:file.type, blob:file, size:file.size };
   await transmit(c, fileReader(file),
-    { k:'file', n:file.name, t:file.type||'application/octet-stream', s:file.size, f:me, ts:local.ts, mid:local.id }, local);
+    { k:'file', n:file.name, t:file.type||'application/octet-stream', s:file.size, f:me, ts:local.ts, mid:local.id }, local,
+    { paced:true }).catch(() => { $('#progfill').style.width = '0'; toast('Connection dropped \u2014 not sent, try again'); });
 }
 
 /* ---------- chrome ---------- */
@@ -12901,6 +12941,7 @@ function bubbleMenu(m, wrap){
    beats the count of sockets that merely happened to be open at send time. */
 function outFooter(m){
   if (m.dir !== 'out') return '';
+  if (m.failed && !(m.acks && m.acks.length)) return ' \u00b7 not delivered';
   if (m.acks && m.acks.length) return ' \u00b7 reached ' + m.acks.length;
   if (m.delivered == null) return '';
   return m.delivered ? ' \u00b7 to ' + m.delivered : ' \u00b7 waiting';
@@ -13794,7 +13835,7 @@ function renderSettings(){
     </div>
     <div class="card" data-sec="build">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>ee48deb738e4</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>3caadbfe6285</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
