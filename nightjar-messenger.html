@@ -227,6 +227,28 @@ main{flex:1 1 auto;overflow:visible}
 .send{width:48px;height:48px;border-radius:50%;background:var(--accent);color:var(--accent-ink);
   display:grid;place-items:center;flex:0 0 auto}
 .send:disabled{opacity:.4}
+.mic{width:48px;height:48px;border-radius:50%;background:var(--accent);color:var(--accent-ink);
+  display:grid;place-items:center;flex:0 0 auto;touch-action:none;user-select:none;-webkit-user-select:none;
+  -webkit-touch-callout:none}
+.mic svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.mic.rec{background:var(--danger);color:#fff;transform:scale(1.12)}
+.comp .recbar{flex:1;display:none;align-items:center;gap:.6rem;min-height:48px;padding:0 .6rem 0 1rem;
+  background:var(--field);border:1px solid var(--line);border-radius:24px;font-size:.95rem;color:var(--ink)}
+.comp.recording .field{display:none}
+.comp.recording .recbar{display:flex}
+.comp.recording #attach{visibility:hidden}
+.recbar .dot{width:12px;height:12px;border-radius:50%;background:var(--danger);animation:recpulse 1s infinite}
+.recbar .hint{margin-left:auto;color:var(--dim);font-size:.85rem;white-space:nowrap}
+.recbar.cancel .hint{color:var(--danger-lit)}
+@keyframes recpulse{0%,100%{opacity:1}50%{opacity:.25}}
+.voice{display:flex;align-items:center;gap:.5rem;min-width:220px;max-width:100%}
+.voice audio{flex:1;min-width:0;height:40px}
+.voice .dur{font-size:.85rem;opacity:.8;flex:0 0 auto}
+.voice .vplay{width:40px;height:40px;border-radius:50%;background:var(--accent);color:var(--accent-ink);
+  display:grid;place-items:center;flex:0 0 auto}
+.voice .vplay svg{width:18px;height:18px;fill:currentColor;stroke:none}
+.voice .vbar{flex:1;height:6px;border-radius:3px;background:rgba(128,128,128,.35);overflow:hidden}
+.voice .vbar i{display:block;height:100%;width:0;background:currentColor}
 .send svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2.2;
   stroke-linecap:round;stroke-linejoin:round}
 
@@ -430,8 +452,11 @@ details[open] summary:before{content:'▾ '}
   <button class="iconbtn" id="attach" aria-label="Attach">
     <svg viewBox="0 0 24 24"><path d="M21 12.5l-8.6 8.6a5.5 5.5 0 01-7.8-7.8l9-9a3.7 3.7 0 015.2 5.2l-9 9a1.8 1.8 0 01-2.6-2.6l8.3-8.3"/></svg></button>
   <div class="field"><textarea id="entry" rows="1" placeholder="Message" enterkeyhint="send"></textarea></div>
-  <button class="send" id="send" aria-label="Send" disabled>
+  <div class="recbar" id="recbar"><span class="dot"></span><span id="rectime">0:00</span><span class="hint" id="rechint">&#9664; slide to cancel</span></div>
+  <button class="send hide" id="send" aria-label="Send" disabled>
     <svg viewBox="0 0 24 24"><path d="M20 12L4 4l6 8-6 8z"/></svg></button>
+  <button class="mic" id="mic" aria-label="Hold to record a voice message">
+    <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3M9 21h6"/></svg></button>
   <input type="file" id="picker" class="hide">
   <input type="file" id="importer" accept=".crr" class="hide">
 </div>
@@ -12443,6 +12468,7 @@ async function receive(c, container){
     if (meta.mid) seenMids.add(meta.mid);
     rec = { id: meta.mid || crypto.randomUUID(), conv:c.id, dir:'in', ts:meta.ts||Date.now(), from:meta.f||'Unknown',
             kind:meta.k, name:meta.n, type:meta.t, size:result.size,
+            dur: Number.isFinite(meta.d) && meta.d > 0 && meta.d < 3600 ? Math.round(meta.d) : undefined,
             text: meta.k==='text' ? await result.text() : undefined,
             loc: (meta.k==='loc'||meta.k==='sos') ? safeLoc(JSON.parse(await result.text())) : undefined,
             blob: (meta.k==='text'||meta.k==='loc'||meta.k==='sos') ? undefined : result };
@@ -12460,7 +12486,7 @@ async function receive(c, container){
   c.last = rec.kind==='text' ? rec.text
          : rec.kind==='bad' ? 'Unreadable message'
          : rec.kind==='sos' ? 'SOS — needs help'
-         : rec.kind==='loc' ? 'Location' : (rec.name||'Attachment');
+         : rec.kind==='loc' ? 'Location' : attachLabel(rec);
   c.lastTs = rec.ts; c.lastFrom = rec.from; c.lastDir = 'in';
   if (openId === c.id) { appendBubble(rec); scrollEnd(); }
   else { c.unread = (c.unread||0)+1; if (view==='list') renderList(); }
@@ -12528,7 +12554,7 @@ async function transmit(c, reader, meta, local, opts={}){
   await put(local);
   c.last = local.kind==='text' ? local.text
          : local.kind==='sos' ? 'SOS — needs help'
-         : local.kind==='loc' ? 'Location' : (local.name||'Attachment');
+         : local.kind==='loc' ? 'Location' : attachLabel(local);
   c.lastTs = local.ts; c.lastFrom = me; c.lastDir = 'out'; saveConvs();
   if (openId === c.id) { appendBubble(local); scrollEnd(); }
   return true;
@@ -12596,13 +12622,180 @@ async function stripPhotoLocation(file){
   }
 }
 
-async function sendFile(c, file){
+async function sendFile(c, file, extra){
   if (!file) return;
   const local = { id:crypto.randomUUID(), conv:c.id, dir:'out', ts:Date.now(), from:me,
-                  kind:'file', name:file.name, type:file.type, blob:file, size:file.size };
+                  kind:'file', name:file.name, type:file.type, blob:file, size:file.size, ...(extra && extra.dur ? { dur: extra.dur } : {}) };
   await transmit(c, fileReader(file),
-    { k:'file', n:file.name, t:file.type||'application/octet-stream', s:file.size, f:me, ts:local.ts, mid:local.id }, local,
+    { k:'file', n:file.name, t:file.type||'application/octet-stream', s:file.size, f:me, ts:local.ts, mid:local.id,
+      ...(extra && extra.dur ? { d: extra.dur } : {}) }, local,
     { paced:true }).catch(() => { $('#progfill').style.width = '0'; toast('Connection dropped \u2014 not sent, try again'); });
+}
+
+/* ---------- voice messages ----------
+   A voice note is an ordinary sealed file, so nothing changes on the wire or
+   in the relay; older builds show it as an audio attachment. Hold the mic to
+   record, let go to send, slide left to throw it away. Recorded as AAC in MP4
+   when the phone can write it (every iPhone, most Androids), else Opus in WebM;
+   the player falls back to Web Audio decoding for a format the <audio> element
+   here cannot play, so an Android note still plays on an iPhone and vice versa.
+   Capped at five minutes: ~1.2 MB at 32 kbit/s, well inside the relay budget. */
+const VOICE_MAX_S = 300, VOICE_MIN_MS = 600;
+const VOICE_TYPES = [['audio/mp4;codecs=mp4a.40.2','m4a'],['audio/mp4','m4a'],
+                     ['audio/webm;codecs=opus','webm'],['audio/webm','webm'],['audio/ogg;codecs=opus','ogg']];
+const voiceType = (() => {
+  if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
+  for (const [t, ext] of VOICE_TYPES) { try { if (MediaRecorder.isTypeSupported(t)) return { mime:t, ext }; } catch {} }
+  return null;
+})();
+const voiceSupported = !!voiceType && window.isSecureContext;
+const isVoice = (m) => !!(m && m.type && m.type.startsWith('audio/') && /^voice\./.test(m.name||''));
+const attachLabel = (m) => isVoice(m) ? 'Voice message' : (m.name || 'Attachment');
+const mmss = (s) => { s = Math.max(0, Math.round(s||0)); return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); };
+
+let vrec = null;   // { stream, mr, chunks, t0, timer, cancelled, armedConv, x0, started }
+async function voiceStart(c, x0){
+  if (vrec) return;
+  vrec = { chunks:[], cancelled:false, started:false, conv:c, x0, t0:0 };
+  const mine = vrec;
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } }); }
+  catch (e) {
+    if (vrec === mine) vrec = null;
+    toast(e && e.name === 'NotAllowedError' ? 'Microphone blocked — allow it for this site in your browser settings'
+                                            : 'Microphone not available');
+    return;
+  }
+  if (vrec !== mine || mine.cancelled) {        // finger lifted while the permission box was up
+    stream.getTracks().forEach(t => t.stop());
+    if (vrec === mine) vrec = null;
+    toast('Microphone ready — hold the button to record');
+    return;
+  }
+  let mr;
+  try { mr = new MediaRecorder(stream, { mimeType: voiceType.mime, audioBitsPerSecond: 32000 }); }
+  catch { try { mr = new MediaRecorder(stream); } catch { stream.getTracks().forEach(t => t.stop()); vrec = null; toast('Recording not supported here'); return; } }
+  mine.stream = stream; mine.mr = mr; mine.started = true; mine.t0 = Date.now();
+  mr.ondataavailable = (e) => { if (e.data && e.data.size) mine.chunks.push(e.data); };
+  mr.onstop = () => voiceFinish(mine);
+  mr.start(500);
+  $('#comp').classList.add('recording'); $('#mic').classList.add('vrec');
+  $('#recbar').classList.remove('cancel'); $('#rechint').textContent = '◀ slide to cancel';
+  $('#rectime').textContent = '0:00';
+  mine.timer = setInterval(() => {
+    const s = (Date.now() - mine.t0) / 1000;
+    $('#rectime').textContent = mmss(s);
+    if (s >= VOICE_MAX_S) voiceStop(false);
+  }, 250);
+  try { navigator.vibrate && navigator.vibrate(15); } catch {}
+}
+function voiceStop(cancel){
+  const mine = vrec; if (!mine) return;
+  mine.cancelled = mine.cancelled || !!cancel;
+  if (!mine.started) { mine.cancelled = true; return; }   // waiting on permission: voiceStart sees cancelled and tidies up
+  if (mine.stopping) return;                      // pointerup and lostpointercapture both land here
+  mine.stopping = true;
+  if (Date.now() - mine.t0 < VOICE_MIN_MS && !mine.cancelled) { mine.cancelled = true; mine.tooShort = true; }
+  clearInterval(mine.timer);
+  try { mine.mr.state !== 'inactive' ? mine.mr.stop() : voiceFinish(mine); } catch { voiceFinish(mine); }
+}
+async function voiceFinish(mine){
+  if (mine.finished) return;
+  mine.finished = true;
+  if (vrec === mine) vrec = null;
+  $('#comp').classList.remove('recording'); $('#mic').classList.remove('vrec');
+  try { mine.stream && mine.stream.getTracks().forEach(t => t.stop()); } catch {}
+  if (mine.tooShort) { toast('Hold the button to record, let go to send'); return; }
+  if (mine.cancelled) return;
+  const dur = Math.round((Date.now() - mine.t0) / 1000);
+  const type = (mine.mr && mine.mr.mimeType) || voiceType.mime;
+  const blob = new Blob(mine.chunks, { type: type.split(';')[0] });
+  if (!blob.size) { toast('Nothing recorded'); return; }
+  const ext = /mp4/.test(type) ? 'm4a' : /ogg/.test(type) ? 'ogg' : 'webm';
+  const file = new File([blob], 'voice.' + ext, { type: blob.type });
+  const c = mine.conv; if (!c) return;
+  await sendFile(c, file, { dur: Math.max(1, dur) });
+}
+{ const mic = $('#mic');
+  mic.addEventListener('contextmenu', e => e.preventDefault());
+  mic.addEventListener('pointerdown', (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    const c = conv(openId); if (!c) return;
+    e.preventDefault();
+    try { mic.setPointerCapture(e.pointerId); } catch {}
+    voiceStart(c, e.clientX);
+  });
+  mic.addEventListener('pointermove', (e) => {
+    if (!vrec || !vrec.started) return;
+    const dx = e.clientX - vrec.x0;
+    const bar = $('#recbar');
+    bar.classList.toggle('cancel', dx < -40);
+    $('#rechint').textContent = dx < -40 ? 'release to cancel' : '◀ slide to cancel';
+    if (dx < -90) { voiceStop(true); try { navigator.vibrate && navigator.vibrate(30); } catch {} }
+  });
+  mic.addEventListener('pointerup', () => voiceStop(false));
+  mic.addEventListener('pointercancel', () => voiceStop(true));
+  mic.addEventListener('lostpointercapture', () => { if (vrec && vrec.started) voiceStop(false); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && vrec) voiceStop(false); });
+}
+/* Player: native <audio> when this browser says it can play the type; else a
+   small Web Audio player (decodeAudioData handles Opus/WebM on iPhones whose
+   <audio> element will not). If both fail, offer the file to save. */
+function voiceEl(m){
+  const box = document.createElement('div'); box.className = 'voice';
+  const url = URL.createObjectURL(m.blob);
+  const probe = document.createElement('audio');
+  const can = m.type && probe.canPlayType(m.type);
+  const dur = document.createElement('span'); dur.className = 'dur';
+  dur.textContent = m.dur ? mmss(m.dur) : '';
+  if (can) {
+    const a = document.createElement('audio'); a.src = url; a.controls = true; a.preload = 'metadata';
+    a.onerror = () => { box.replaceChildren(); box.appendChild(webAudioPlayer(m, dur)); };
+    box.appendChild(a);
+  } else {
+    box.appendChild(webAudioPlayer(m, dur));
+  }
+  if (!isVoice(m)) { const nm = document.createElement('span'); nm.className = 'dur'; nm.textContent = m.name || ''; box.appendChild(nm); }
+  if (!can) box.appendChild(dur);
+  return box;
+}
+function webAudioPlayer(m, durEl){
+  const frag = document.createDocumentFragment();
+  const btn = document.createElement('button'); btn.className = 'vplay'; btn.setAttribute('aria-label', 'Play');
+  const PLAY = '<svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>';
+  const STOP = '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
+  btn.innerHTML = PLAY;
+  const bar = document.createElement('div'); bar.className = 'vbar'; const fill = document.createElement('i'); bar.appendChild(fill);
+  let ctx = null, src = null, buf = null, raf = 0, startAt = 0;
+  const stop = () => { try { src && src.stop(); } catch {} src = null; cancelAnimationFrame(raf); fill.style.width = '0'; btn.innerHTML = PLAY; };
+  btn.onclick = async () => {
+    if (src) { stop(); return; }
+    try {
+      ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === 'suspended') await ctx.resume();
+      if (!buf) {
+        btn.disabled = true;
+        buf = await ctx.decodeAudioData(await m.blob.arrayBuffer());
+        btn.disabled = false;
+        if (durEl && !durEl.textContent) durEl.textContent = mmss(buf.duration);
+      }
+      src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+      src.onended = () => { if (src) stop(); };
+      startAt = ctx.currentTime; src.start();
+      btn.innerHTML = STOP;
+      const tick = () => { if (!src) return; fill.style.width = Math.min(100, (ctx.currentTime - startAt) / buf.duration * 100) + '%'; raf = requestAnimationFrame(tick); };
+      tick();
+    } catch {
+      btn.disabled = false;
+      stop();
+      bar.replaceChildren();
+      const d = document.createElement('span'); d.className = 'dur'; d.textContent = 'Can’t play this here — tap to save it';
+      bar.appendChild(d);
+      btn.onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(m.blob); a.download = m.name || 'voice'; a.click(); };
+    }
+  };
+  frag.appendChild(btn); frag.appendChild(bar);
+  return frag;
 }
 
 /* ---------- chrome ---------- */
@@ -12865,8 +13058,7 @@ function bubbleEl(m, prev){
       const v = document.createElement('video'); v.src = URL.createObjectURL(m.blob);
       v.controls = true; v.preload='metadata'; wrap.appendChild(v);
     } else if (m.blob && type.startsWith('audio/')) {
-      const a = document.createElement('audio'); a.src = URL.createObjectURL(m.blob);
-      a.controls = true; a.style.maxWidth='100%'; wrap.appendChild(a);
+      wrap.appendChild(voiceEl(m));
     } else if (m.blob) {
       const d = document.createElement('button'); d.className='doc';
       d.innerHTML = `<span class="ic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none"
@@ -13835,7 +14027,7 @@ function renderSettings(){
     </div>
     <div class="card" data-sec="build">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>3caadbfe6285</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>c9317538a633</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -14108,15 +14300,22 @@ entry.addEventListener('input', () => {
   entry.style.height='auto';
   entry.style.height = Math.min(136, entry.scrollHeight)+'px';
   $('#send').disabled = !entry.value.trim();
+  swapSendMic();
 });
+function swapSendMic(){
+  const has = !!entry.value.trim();
+  $('#send').classList.toggle('hide', !has);
+  $('#mic').classList.toggle('hide', has || !voiceSupported);
+}
 const coarse = matchMedia('(pointer:coarse)').matches;
+swapSendMic();
 entry.addEventListener('keydown', e => {
   if (e.key==='Enter' && !e.shiftKey && !coarse) { e.preventDefault(); $('#send').click(); }
 });
 $('#send').onclick = async () => {
   const c = conv(openId), t = entry.value.trim();
   if (!c || !t) return;
-  entry.value=''; entry.style.height='auto'; $('#send').disabled=true;
+  entry.value=''; entry.style.height='auto'; $('#send').disabled=true; swapSendMic();
   await sendText(c, t);
 };
 $('#attach').onclick = () => {
