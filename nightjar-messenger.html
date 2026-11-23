@@ -13404,7 +13404,12 @@ function myTopic(){
   }
   return t;
 }
-const pingLast = new Map();      // conv.id -> last ping, for the 60s courtesy gap
+/* Courtesy gap between pings in one conversation: the ping carries no content, so
+   a burst of messages should not be a burst of identical buzzes. Was 60 s; cut to
+   20 s (Mike, 23 Nov 2026) so a follow-up half a minute later still buzzes. SOS
+   is exempt. ntfy.sh allows roughly 250 unsigned pings a day per sender address. */
+const PING_GAP_MS = 20 * 1000;
+const pingLast = new Map();      // conv.id -> time of the last ping
 const announceLast = new Map();  // conv.id -> last announce, heals restores/joins
 /* Fire-and-forget pings to every member's doorbell except our own. Never
    awaited: a slow network must not delay the message (or an SOS) behind it.
@@ -13413,7 +13418,7 @@ function notifyPeers(c, kind){
   const mine = myTopic();
   const topics = (c.ntopics || []).filter(t => t !== mine);
   if (!topics.length) return;
-  if (kind !== 'sos' && Date.now() - (pingLast.get(c.id) || 0) < 60000) return;
+  if (kind !== 'sos' && Date.now() - (pingLast.get(c.id) || 0) < PING_GAP_MS) return;
   pingLast.set(c.id, Date.now());
   for (const t of topics){
     try { fetch('https://ntfy.sh/' + t, { method:'POST', body:'New message',
@@ -14208,7 +14213,7 @@ function renderSettings(){
     </div>
     <div class="card" data-sec="build">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>f050c350f2a2</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>a241cb0587cd</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
