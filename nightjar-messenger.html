@@ -231,9 +231,9 @@ main{flex:1 1 auto;overflow:visible}
   display:grid;place-items:center;flex:0 0 auto;touch-action:none;user-select:none;-webkit-user-select:none;
   -webkit-touch-callout:none}
 .mic svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
-.mic.rec{background:var(--danger);color:#fff;transform:scale(1.12)}
+.mic.vrec{background:var(--danger);color:#fff;transform:scale(1.12)}
 .comp .recbar{flex:1;display:none;align-items:center;gap:.6rem;min-height:48px;padding:0 .6rem 0 1rem;
-  background:var(--field);border:1px solid var(--line);border-radius:24px;font-size:.95rem;color:var(--ink)}
+  background:var(--field);border:1px solid var(--line);border-radius:24px;font-size:.95rem;color:var(--text)}
 .comp.recording .field{display:none}
 .comp.recording .recbar{display:flex}
 .comp.recording #attach{visibility:hidden}
@@ -1251,6 +1251,18 @@ function bearingDistance(lat1, lon1, lat2, lon2) {
 }
 
 
+/* ---------------------------------------------------------------------------
+ * jsQR - QR code reader. Third-party code, not written for Nightjar.
+ * Used by "Scan their code" on browsers that have no built-in QR detector.
+ * It runs from the next line down to the "END jsQR" marker.
+ *
+ *   Project:  https://github.com/cozmo/jsQR
+ *   Authors:  the jsQR authors and contributors
+ *   Licence:  Apache License, Version 2.0
+ *             https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * The version bundled here was not recorded when it was added.
+ * ------------------------------------------------------------------------- */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
 		module.exports = factory();
@@ -11353,6 +11365,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
 /***/ })
 /******/ ])["default"];
 });
+/* END jsQR */
 const $ = (s) => document.querySelector(s);
 const LS = { me:'courier.me', relay:'courier.relay', convs:'courier.convs', keep:'courier.keep', token:'courier.token', striploc:'courier.striploc' };
 let me = localStorage.getItem(LS.me) || '';
@@ -11364,6 +11377,19 @@ let convs = JSON.parse(localStorage.getItem(LS.convs) || '[]');
 let keepDays = Number(localStorage.getItem(LS.keep) ?? 30);   // 0 = keep indefinitely
 let openId = null, view = 'list', query = '';
 const socks = new Map();
+/* Session generation. Bumped whenever the sockets are torn down (lock, unlock),
+   so a socket or a pending reconnect from before can tell it is stale and stop.
+   Without it a closed socket simply reconnected behind the lock screen. */
+let sessionGen = 0;
+function dropSockets(){
+  sessionGen++;
+  socks.forEach(s => {
+    clearInterval(s.hb);
+    const w = s.ws;
+    if (w) { w.onopen = w.onmessage = w.onclose = w.onerror = null; try { w.close(); } catch {} }
+  });
+  socks.clear();
+}
 
 const VAULT = 'courier.vault';
 const LOCKMODE = 'courier.lockmode';   // 'numeric'|'text' — which keyboard to show, NOT the secret
@@ -11385,6 +11411,9 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', app
 /* Which Settings group is open (null = the menu), kept across re-renders. */
 let settingsSec = null, settingsShow = null;
 let vaultKey = null;          // held in memory only, never written anywhere
+/* A lock exists and is shut. While this is true nothing may be stored: a record
+   written now could only be written unsealed. */
+const isLocked = () => !vaultKey && !!localStorage.getItem(VAULT);
 let hiddenSince = 0;
 const AUTOLOCK_MS = 5 * 60 * 1000;
 
@@ -11402,6 +11431,7 @@ async function persistVault(){
   localStorage.setItem(VAULT, JSON.stringify({ s:v.s, i:toBase64(iv), c:toBase64(ct) }));
 }
 function saveConvs(){
+  if (isLocked()) return;        // the list in memory is empty while locked; never write it out
   if (vaultKey) { void persistVault(); localStorage.removeItem(LS.convs); }
   else localStorage.setItem(LS.convs, JSON.stringify(convs));
 }
@@ -11491,8 +11521,11 @@ function lockLabel(placeholder){
 function lockNow(){
   if (!localStorage.getItem(VAULT)) return;
   if (liveShare) stopLiveShare(false);   // locking pauses everything; the share does not survive it
-  socks.forEach(s => s.ws && s.ws.close()); socks.clear();
+  try { if (vrec) voiceStop(true); } catch {}
+  stopSOSWatch();
+  dropSockets();                         // closed for good: no handler left to reconnect or receive
   convs = []; vaultKey = null; openId = null;
+  liveNow.clear();                       // other people's live positions do not sit behind the lock
   renderLock();
 }
 /* Burn everything: remove all Nightjar data from this device and reload into the
@@ -11565,6 +11598,8 @@ function renderLock(){
     $('#go').disabled = true;
     try {
       await unlockWith(p);
+      stopLockSosWatch();
+      dropSockets();                     // a socket opened by the lock-screen SOS belongs to the locked session
       document.querySelector('.bar').classList.remove('hide');
       renderList(); connectAll();
     } catch { $('#go').disabled = false; $('#pin').value=''; toast('Wrong ' + lockLabel()); }
@@ -11581,18 +11616,23 @@ function renderLock(){
    head start; if no fix by fire time the text says so honestly instead of
    waiting. A web page cannot send an SMS itself \u2014 this opens the composer
    filled in, and the final tap is the user's. */
+let lockSosWatch = null;      // GPS watch started by a hold on the lock-screen SOS
+function stopLockSosWatch(){
+  if (lockSosWatch != null && navigator.geolocation) { try { navigator.geolocation.clearWatch(lockSosWatch); } catch {} }
+  lockSosWatch = null;
+}
 function wireLockSOS(){
   const cs = sosContacts();
   if (!cs.length && !sosKeyRec()) return;
   const btn = $('#lsos'), fill = $('#lsosfill'), lab = $('#lsoslab');
   if (!btn) return;
   const dc = cs[0] || null, HOLD = 3000;
-  let t0 = 0, raf = 0, fired = false, watchId = null, best = myFix;
+  let t0 = 0, raf = 0, fired = false, best = myFix;
   const setFill = f => { fill.style.width = (Math.max(0, Math.min(1, f)) * 100).toFixed(1) + '%'; };
   const startGPS = () => {
-    if (watchId != null || !navigator.geolocation) return;
+    if (lockSosWatch != null || !navigator.geolocation) return;
     try {
-      watchId = navigator.geolocation.watchPosition(p => {
+      lockSosWatch = navigator.geolocation.watchPosition(p => {
         const cand = { lat:+p.coords.latitude.toFixed(6), lng:+p.coords.longitude.toFixed(6),
                        acc:Math.round(p.coords.accuracy), ts:p.timestamp || Date.now() };
         if (betterFix(best, cand)) { best = cand; myFix = cand; }
@@ -11663,7 +11703,9 @@ function wireLockSOS(){
     if (f >= 1) return void fire();
     setFill(f); raf = requestAnimationFrame(tick);
   };
-  const abort = () => { if (fired) return; if (raf) cancelAnimationFrame(raf); raf = 0; t0 = 0; setFill(0); };
+  /* A hold that is let go switches the GPS off again. After a real SOS it stays
+     on until unlock, so a second send carries a sharper fix. */
+  const abort = () => { if (fired) return; if (raf) cancelAnimationFrame(raf); raf = 0; t0 = 0; setFill(0); stopLockSosWatch(); };
   btn.addEventListener('contextmenu', e => e.preventDefault());
   btn.addEventListener('pointerdown', e => {
     e.preventDefault(); if (fired || t0) return;
@@ -12270,6 +12312,7 @@ const haveMessage = (id) => new Promise((res)=>{
   q.onsuccess = () => res(!!q.result); q.onerror = () => res(false);
 });
 const put = async (m) => {
+  if (isLocked()) return;                 // never write a record in the clear while a lock exists
   const rec = await sealRecord(m);
   return new Promise((res,rej)=>{const q=store('readwrite').put(rec);q.onsuccess=res;q.onerror=()=>rej(q.error);});
 };
@@ -12344,30 +12387,122 @@ function status(){
   if (view === 'thread') paintHead();
   if (view === 'list') renderRows();
 }
+/* ---------- catch-up bookmark ----------
+   The relay numbers every stored frame and keeps it for seven days. c.seq is this
+   device's bookmark: "I hold everything up to here", sent with each sync request.
+   A bookmark that runs ahead skips messages for good, so three rules govern it.
+
+   1. The relay answers a sync in pages (64 frames, then {t:'synced', n, more}).
+      While more is true the next page has to be asked for.
+   2. The bookmark only moves over frames received without a gap. The relay passes
+      live frames only to sockets it has heard a heartbeat from in the last 75 s,
+      so a phone that went quiet misses frames while its socket stays open. A
+      frame numbered past the next expected one means something between was
+      missed: fetch it before moving on. The same catch-up is asked for whenever
+      the app comes back to the foreground. {t:'stored', seq} reports the number
+      our own frame was given, which is never relayed back to us.
+   3. The bookmark stays behind any message that is only part-received or still
+      being stored, so a reload cannot strand its earlier frames. A part-received
+      message that has gained no frame for HOLD_IDLE_MS, once the backlog is in,
+      was abandoned by its sender (a dropped send leaves its frames on the relay)
+      and is let go, so it is not downloaded again on every open. c.hold notes
+      how far each such message had got, so short sessions do not restart the wait. */
+const HOLD_IDLE_MS = 90 * 1000;
+function syncStart(c, s){
+  s.cur = c.seq || 0;                // every frame numbered up to here is in hand
+  s.ahead = new Set();               // frames received beyond a gap
+  s.lastBin = 0;                     // number of the frame received most recently
+  s.syncing = false; s.drained = false; s.burst = 0;
+  if (!s.part) s.part = new Map();   // message id -> { first, got, at, storing }
+  if (!s.gone) s.gone = new Set();   // message ids given up on this session
+  syncAsk(c, s);
+}
+function syncAsk(c, s){
+  if (s.syncing || !s.ahead || !s.ws || s.ws.readyState !== 1) return;
+  if (++s.burst > 40) return;        // a relay answering nonsense cannot make this spin
+  s.askHi = s.cur; for (const q of s.ahead) if (q > s.askHi) s.askHi = q;
+  try { s.ws.send(JSON.stringify({ t:'sync', since:s.cur })); s.syncing = true; s.pageFrom = s.cur; } catch {}
+}
+function seqTrim(s){
+  for (const q of s.ahead) if (q <= s.cur) s.ahead.delete(q);
+  while (s.ahead.delete(s.cur + 1)) s.cur++;
+}
+function seqSave(c, s){
+  let safe = s.cur;
+  for (const p of s.part.values()) if (p.first - 1 < safe) safe = p.first - 1;
+  if (safe > (c.seq || 0)) { c.seq = safe; s.dirty = false; saveConvs(); }
+}
+function seqNote(c, s, q){
+  if (!s.ahead) return;
+  if (q > s.cur) {
+    if (s.ahead.size > 4096) s.ahead.clear();
+    s.ahead.add(q);
+    while (s.ahead.delete(s.cur + 1)) s.cur++;
+  }
+  if (s.ahead.size && !s.syncing) syncAsk(c, s);     // something between was missed: fetch it
+  seqSave(c, s);
+}
+function syncPage(c, s, m){
+  if (!s.syncing) return;
+  if ((m.n | 0) > 0 && s.lastBin > s.cur) s.cur = s.lastBin;   // the frames just before this notice were the page
+  seqTrim(s);
+  if (m.more && s.cur > s.pageFrom) {                          // more waiting, and this page moved us on
+    try { s.ws.send(JSON.stringify({ t:'sync', since:s.cur })); s.pageFrom = s.cur; seqSave(c, s); return; } catch {}
+  }
+  /* Backlog in. Everything the relay still holds above the bookmark has just been
+     sent, so whatever was seen before asking is covered, even where frames
+     between it and the bookmark have expired off the relay. */
+  if (s.askHi > s.cur) { s.cur = s.askHi; seqTrim(s); }
+  s.syncing = false; s.drained = true;
+  if (s.ahead.size) syncAsk(c, s);                   // frames arrived out of step while catching up
+  else { s.burst = 0; holdSweep(c, s); }
+  seqSave(c, s);
+}
+function holdSweep(c, s){
+  if (!s.drained || s.syncing || s.ahead.size) return;     // only once the backlog is in and in step
+  const now = Date.now(), h = c.hold || {};
+  for (const [id, p] of s.part) {
+    if (p.storing) continue;
+    if (now - (h[id] ? h[id].t : p.at) < HOLD_IDLE_MS) continue;
+    /* Given up. Its frames stay in memory, so if the sender was only slow and it
+       finishes during this session it is still delivered. */
+    s.part.delete(id); delete h[id]; s.dirty = true;
+    if (s.gone.size > 256) s.gone.clear();
+    s.gone.add(id);
+  }
+  for (const id of Object.keys(h)) if (!s.part.has(id) && now - h[id].t > HOLD_IDLE_MS) { delete h[id]; s.dirty = true; }
+  seqSave(c, s);
+  if (s.dirty) { s.dirty = false; saveConvs(); }
+}
 async function connect(c){
   if (!relay) return;
+  const gen = sessionGen;
   let s = socks.get(c.id);
-  if (!s) { s = { rx:new Reassembler(), peers:0, tries:0 }; socks.set(c.id, s); }
+  if (!s) { s = { rx:new Reassembler(), peers:0, tries:0, part:new Map(), gone:new Set() }; socks.set(c.id, s); }
   if (s.ws && (s.ws.readyState===0 || s.ws.readyState===1)) return;
   const base = relay.replace(/^http/,'ws').replace(/\/+$/,'') + '/r/' + c.id;
   const ws = new WebSocket(base + (relayToken ? '?t=' + encodeURIComponent(relayToken) : ''));
   ws.binaryType = 'arraybuffer'; s.ws = ws;
   ws.onopen = () => {
-    s.tries = 0; ws.send(JSON.stringify({t:'sync', since:c.seq||0})); status();
+    s.tries = 0; syncStart(c, s); status();
     if (c.announced !== myTopic())
       announceTopic(c).then(ok => { if (ok){ c.announced = myTopic(); saveConvs(); } });
     /* Heartbeat: lets the relay tell living sockets from ghosts, so the online
        dots mean "alive in the last minute", not "socket object still exists".
        Answered at Cloudflare's edge without waking the relay. */
     clearInterval(s.hb);
-    s.hb = setInterval(() => { try { ws.send('hb'); } catch {} }, 25000);
+    s.hb = setInterval(() => {
+      try { ws.send('hb'); } catch {}
+      if (gen === sessionGen && !isLocked()) holdSweep(c, s);
+    }, 25000);
   };
   ws.onclose = () => {
     s.ws = null;
     clearInterval(s.hb); s.hb = null;
+    if (gen !== sessionGen) return;         // torn down by a lock or an unlock: stay down
     s.peers = 0; status();                  // our link is down: show nobody, not a stale count
     if (view==='list') renderList();
-    setTimeout(()=>connect(c), Math.min(30000, 1000*2**s.tries++));
+    setTimeout(()=>{ if (gen === sessionGen) connect(c); }, Math.min(30000, 1000*2**s.tries++));
   };
   ws.onerror = () => {};
   ws.onmessage = (ev) => {
@@ -12376,13 +12511,40 @@ async function connect(c){
       if (m.t==='presence') { s.peers = Math.max(0, m.n-1); status(); if (view==='list') renderList(); }
       if (m.t==='delivered') s.lastDelivered = m.n;
       if (m.t==='slow') s.slowAt = Date.now();   // relay flood guard dropped a frame from us
+      if (gen === sessionGen && !isLocked()) {
+        if (m.t==='stored' && Number.isFinite(m.seq)) seqNote(c, s, m.seq);   // the number our own frame was given
+        if (m.t==='synced') syncPage(c, s, m);
+      }
       return;                                   // frames render as they decrypt
     }
+    if (gen !== sessionGen || isLocked()) return;   // stale socket, or locked: it could only be stored unsealed
     const tagged = readSeq(new Uint8Array(ev.data));
     if (!tagged) return;
-    if (tagged.seq > (c.seq||0)) { c.seq = tagged.seq; saveConvs(); }
+    s.lastBin = tagged.seq;
     const r = s.rx.push(tagged.frame);
-    if (r.complete) receive(c, r.container);
+    if (r.id && (r.pending || r.complete) && !s.gone.has(r.id)) {
+      let p = s.part.get(r.id);
+      if (!p) { p = { first:tagged.seq, got:0, at:Date.now() }; s.part.set(r.id, p); }
+      else if (tagged.seq < p.first) p.first = tagged.seq;
+      if (r.pending && r.got > p.got) {
+        p.got = r.got; p.at = Date.now();
+        const h = (c.hold = c.hold || {});
+        if (!h[r.id]) { h[r.id] = { n:r.got, t:p.at }; saveConvs(); }          // first sight of a message in parts
+        else if (r.got > h[r.id].n) { h[r.id] = { n:r.got, t:p.at }; s.dirty = true; }
+      }
+      if (r.complete) {
+        /* The bookmark waits until this is stored, not merely received. */
+        p.storing = true;
+        const id = r.id, done = () => {
+          if (gen !== sessionGen) return;
+          s.part.delete(id);
+          if (c.hold && c.hold[id]) { delete c.hold[id]; s.dirty = true; }
+          seqSave(c, s);
+        };
+        receive(c, r.container).then(done, (e) => { done(); throw e; });
+      }
+    } else if (r.complete) receive(c, r.container);
+    seqNote(c, s, tagged.seq);
   };
 }
 const connectAll = () => convs.forEach(connect);
@@ -12563,7 +12725,7 @@ async function sendText(c, text){
   const data = new TextEncoder().encode(text);
   const local = { id:crypto.randomUUID(), conv:c.id, dir:'out', ts:Date.now(), from:me,
                   kind:'text', text, size:data.length };
-  await transmit(c, bytesReader(data), { k:'text', s:data.length, f:me, ts:local.ts, mid:local.id }, local);
+  return transmit(c, bytesReader(data), { k:'text', s:data.length, f:me, ts:local.ts, mid:local.id }, local);
 }
 /* The relay's flood guard drops anything past 4 MB per minute from one socket,
    so a file send is paced to stay under RELAY_BUDGET, leaving headroom so a
@@ -12828,6 +12990,7 @@ function fitTitle(){
 }
 function chrome({ back=false, info=false, gear=true, composer=false, title='Nightjar', sub='',
                   av=null, big=false, search=false, compose=false, sos=false }){
+  stopSOSWatch();   // every screen change ends the SOS / Share-location GPS watch; those two start their own after this
   $('#back').classList.toggle('hide', !back);
   $('#info').classList.toggle('hide', !info);
   $('#gear').classList.toggle('hide', !gear);
@@ -14035,14 +14198,17 @@ function renderSettings(){
     </div>
     <div class="card" data-sec="build">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>5b602af3b549</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>b7b4ce818b26</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
       host can change what it does. Saved to the device and opened from a <code>file://</code> address,
       it cannot be changed underneath you.</p>
-      <p class="note">Check the copy with <code>sha256sum</code> against the hash published alongside it.
+      <p class="note">Saving downloads the file again, exactly as the host serves it, so it needs a
+      connection. Check the copy with <code>sha256sum</code> against the hash published alongside it.
       Do that outside this app: a page that had been tampered with would happily tell you it hadn't.</p>
+      <p class="note">QR scanning uses jsQR, free software under the Apache License 2.0
+      (github.com/cozmo/jsQR).</p>
     </div>
     <div class="card" data-sec="build">
       <h2 class="hd">What this doesn't protect you from</h2>
@@ -14122,25 +14288,32 @@ function renderSettings(){
   }
   $('#how').textContent = location.protocol.replace(':','') + (location.protocol==='file:'?' — fixed on this device':' — re-fetched each load');
   $('#grab').onclick = async () => {
+    /* Download the file again and save those exact bytes, so the copy can be
+       checked against the published sha256. Writing the page out from memory
+       gave a file that differed from the original and could never match. The
+       cost is that this needs a connection; if the download fails nothing is
+       saved, rather than saving something that cannot be checked. */
+    if (location.protocol === 'file:') return toast('This is already a saved copy \u2014 pass that file on as it is');
+    const btn = $('#grab'), running = (document.querySelector('#setpad [data-sec="build"] code') || {}).textContent || '';
+    btn.disabled = true;
     try {
-      /* Serialise the page already in memory — no network fetch, so this works
-         even where the host is blocked or offline. Clone first and strip every
-         input's value attribute, so a shared copy never carries your relay
-         password, name, or relay address into someone else's hands. */
-      const clone = document.documentElement.cloneNode(true);
-      clone.querySelectorAll('input, textarea').forEach(el => {
-        el.removeAttribute('value'); el.value = '';
-      });
-      const html = '<!DOCTYPE html>\n' + clone.outerHTML;
-      const blob = new Blob([html], { type:'text/html' });
+      const r = await fetch(location.origin + location.pathname, { cache:'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const buf = await r.arrayBuffer();
+      const text = new TextDecoder().decode(buf);
+      const m = /Build <code>([0-9a-f]{12})<\/code>/.exec(text);
+      if (!m || !text.includes('<title>Nightjar</title>')) throw new Error('NOT_NIGHTJAR');
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      a.href = URL.createObjectURL(new Blob([buf], { type:'text/html' }));
       a.download = 'nightjar-messenger.html';
       a.click();
-      toast('Saved from memory — open it from your Files app to run it offline');
+      toast(m[1] === running
+        ? 'Saved build ' + m[1] + ' \u2014 check its sha256 before you rely on it'
+        : 'Saved build ' + m[1] + ' \u2014 the host now serves a different build from the one running (' + running + ')');
     } catch {
-      toast('Could not save; use the browser menu \u2192 Save page instead');
+      toast('Could not download the file \u2014 nothing saved. This needs a connection');
     }
+    if ($('#grab')) $('#grab').disabled = false;
   };
   $('#striploc').checked = stripLoc;
   $('#mapsel').value = mapPref();
@@ -14324,7 +14497,14 @@ $('#send').onclick = async () => {
   const c = conv(openId), t = entry.value.trim();
   if (!c || !t) return;
   entry.value=''; entry.style.height='auto'; $('#send').disabled=true; swapSendMic();
-  await sendText(c, t);
+  /* The box empties at once so a second tap cannot send twice. If nothing went
+     (no connection, or it dropped mid-send) the text goes back in the box. */
+  let ok = false, dropped = false;
+  try { ok = await sendText(c, t); } catch { dropped = true; }
+  if (ok) return;
+  entry.value = entry.value ? t + '\n' + entry.value : t;
+  entry.dispatchEvent(new Event('input'));
+  if (dropped) toast('Connection dropped \u2014 not sent. Your message is back in the box');
 };
 $('#attach').onclick = () => {
   /* Two-level sheet: the three everyday actions up front, the rare ones behind
@@ -14518,15 +14698,16 @@ window.addEventListener('unhandledrejection', (e) => {
   }
   db = await idb();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{});
-  if (localStorage.getItem(VAULT)) { await purgeExpired(); return renderLock(); }
   await purgeExpired();
   setInterval(purgeExpired, 3600000);
-  if (!me || !relay) renderSettings(); else { renderList(); connectAll(); }
   setInterval(() => { if (relay) connectAll(); }, 15000);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenSince = Date.now(); return; }
     if (vaultKey && hiddenSince && Date.now() - hiddenSince > AUTOLOCK_MS) return lockNow();
     connectAll();
+    /* Back in the foreground: ask each open socket for anything the relay held
+       back while this phone was too quiet to count as present. */
+    socks.forEach((s, id) => { const c = conv(id); if (c) { s.burst = 0; syncAsk(c, s); } });
     if (liveShare){                     // waking the phone refreshes the share at once
       acquireWake();
       fix({ timeout:15000, maximumAge:0 }).then(f => {
@@ -14537,6 +14718,11 @@ window.addEventListener('unhandledrejection', (e) => {
       paintLiveStrip();
     }
   });
+  /* The timers and the background listener above are registered BEFORE the lock
+     screen returns. Registered after it, a phone that started locked never
+     re-locked itself. */
+  if (localStorage.getItem(VAULT)) return renderLock();
+  if (!me || !relay) renderSettings(); else { renderList(); connectAll(); }
 })();
 </script>
 </body>
