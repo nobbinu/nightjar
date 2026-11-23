@@ -12650,7 +12650,7 @@ async function receive(c, container){
          : rec.kind==='sos' ? 'SOS — needs help'
          : rec.kind==='loc' ? 'Location' : attachLabel(rec);
   c.lastTs = rec.ts; c.lastFrom = rec.from; c.lastDir = 'in';
-  if (openId === c.id) { appendBubble(rec); scrollEnd(); }
+  if (openId === c.id) { appendBubble(rec); scrollEnd(false); }
   else { c.unread = (c.unread||0)+1; if (view==='list') renderList(); }
   saveConvs();
 }
@@ -13224,6 +13224,7 @@ function bubbleEl(m, prev){
     const type = m.type || '';
     if (m.blob && type.startsWith('image/')) {
       const i = document.createElement('img'); i.src = URL.createObjectURL(m.blob); i.alt = m.name||'image';
+      i.addEventListener('load', () => scrollEnd(false), { once:true });   // a photo has no height until it draws
       i.loading='lazy'; i.onclick = () => lightbox(i.src); wrap.appendChild(i);
     } else if (m.blob && type.startsWith('video/')) {
       const v = document.createElement('video'); v.src = URL.createObjectURL(m.blob);
@@ -13319,7 +13320,16 @@ function appendBubble(m){
   t.appendChild(bubbleEl(m, lastRendered));
   lastRendered = m;
 }
-const scrollEnd = () => { const m=$('#main'); m.scrollTop = m.scrollHeight; };
+/* The page itself scrolls: main is not a scroll box, so setting its scrollTop did
+   nothing and a long thread opened at its first message. The newest message is
+   at the bottom of the document.
+   force (the default): opening a thread or sending always goes to the end.
+   scrollEnd(false): something arrived or a photo finished drawing; follow it
+   only if the reader is already near the end, so someone reading back through
+   old messages is not pulled away. */
+const scroller = () => document.scrollingElement || document.documentElement;
+const nearEnd = () => { const e = scroller(); return e.scrollHeight - e.scrollTop - e.clientHeight < Math.max(600, e.clientHeight); };
+const scrollEnd = (force = true) => { if (!force && !nearEnd()) return; const e = scroller(); e.scrollTop = e.scrollHeight; };
 
 async function openThread(id){
   view='thread'; openId=id; hideFab();
@@ -14198,7 +14208,7 @@ function renderSettings(){
     </div>
     <div class="card" data-sec="build">
       <h2 class="hd">This build</h2>
-      <p class="note" style="margin-top:0">Build <code>b7b4ce818b26</code>, loaded over
+      <p class="note" style="margin-top:0">Build <code>f050c350f2a2</code>, loaded over
       <code id="how"></code>.</p>
       <div class="acts"><button class="btn sec" id="grab">Save a copy for offline use</button></div>
       <p class="note">Served from the web, this page is fetched fresh every time — whoever controls the
@@ -14475,7 +14485,7 @@ function renderSettings(){
 /* ---------- composer ---------- */
 const entry = $('#entry');
 entry.addEventListener('focus', () => {
-  setTimeout(() => { if (entry.scrollIntoView) entry.scrollIntoView({ block:'end' }); scrollEnd(); }, 350);
+  setTimeout(() => { if (entry.scrollIntoView) entry.scrollIntoView({ block:'end' }); scrollEnd(false); }, 350);
 });
 entry.addEventListener('input', () => {
   entry.style.height='auto';
